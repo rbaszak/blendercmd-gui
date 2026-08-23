@@ -4,7 +4,7 @@ Blender Render Queue uses only the Python standard library. There are no Python 
 
 ## Linux
 
-The application needs Python 3, Tkinter for native file dialogs, and curl for ntfy notifications.
+The application needs Python 3, Tkinter for native file dialogs, and curl for ntfy.sh notifications.
 
 ### Ubuntu / Debian
 

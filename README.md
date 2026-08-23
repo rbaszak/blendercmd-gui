@@ -1,12 +1,12 @@
 # BlenderCMD Render GUI
 
-A lightweight, local browser interface for preparing and running sequential Blender renders. It replaces manually maintained batch files with a visual queue, progress tracking, configurable output formats, optional ntfy notifications, and end-of-queue power actions.
+A lightweight, local browser interface for preparing and running sequential Blender renders. It replaces manually maintained batch files with a visual queue, progress tracking, configurable output formats, optional ntfy.sh notifications, and end-of-queue power actions.
 
 The server listens on `127.0.0.1` only. No authentication, database, framework, or third-party Python package is required.
 
 [**Open the interactive demo →**](https://rbaszak.github.io/blendercmd-gui/)
 
-![Blender Render Queue interface](screenshot.png)
+![Blender Render Queue interface](static/screenshot.png)
 
 ## Features
 
@@ -19,7 +19,7 @@ The server listens on `127.0.0.1` only. No authentication, database, framework, 
 - Detect completed output files when the application starts
 - Skip existing frames in a partially rendered PNG sequence or overwrite the complete range
 - Live Blender console output, tile/sample progress, and remaining-time estimate
-- Asynchronous ntfy notifications after successful renders
+- Asynchronous ntfy.sh notifications after successful renders
 - Optional shutdown or suspend task at the end of the queue
 - Windows tray icon and background launch
 - Linux and macOS launch scripts with terminal-based shutdown
@@ -30,7 +30,7 @@ The server listens on `127.0.0.1` only. No authentication, database, framework, 
 - Python 3.9 or newer
 - Blender with command-line rendering support
 - Tkinter on Linux/macOS for native file and directory dialogs
-- curl for ntfy notifications
+- curl for ntfy.sh notifications
 
 See [DEPENDENCIES.md](DEPENDENCIES.md) for installation commands on Ubuntu/Debian, Fedora, Arch Linux, and macOS.
 
@@ -80,7 +80,7 @@ The interface is available at [http://127.0.0.1:5050](http://127.0.0.1:5050).
 
 ## Configuration
 
-Runtime configuration is stored in `configuration.yaml`. This file is ignored by Git because it can contain private paths, an ntfy server/topic, and the current render queue.
+Runtime configuration is stored in `configuration.yaml`. This file is ignored by Git because it can contain private paths, an ntfy.sh server/topic, and the current render queue.
 
 Start from [configuration-example.yaml](configuration-example.yaml):
 
@@ -108,7 +108,7 @@ Custom arguments are inserted before the render trigger (`-f` or `-a`). For exam
 --threads 8 --cycles-device CUDA
 ```
 
-### ntfy notifications
+### ntfy.sh notifications
 
 ```yaml
 notifications:

@@ -15,7 +15,7 @@ $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $exitItem = $menu.Items.Add('Exit')
 
 $icon = New-Object System.Windows.Forms.NotifyIcon
-$iconPath = Join-Path $PSScriptRoot 'icon.png'
+$iconPath = Join-Path $PSScriptRoot 'static\icon.png'
 if (Test-Path -LiteralPath $iconPath) {
     $sourceBitmap = [System.Drawing.Bitmap]::FromFile($iconPath)
     $trayBitmap = New-Object System.Drawing.Bitmap($sourceBitmap, 32, 32)
