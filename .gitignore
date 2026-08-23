@@ -1,5 +1,6 @@
 # Private runtime configuration and queue
 configuration.yaml
+!packaging/configuration.yaml
 
 # Python
 __pycache__/

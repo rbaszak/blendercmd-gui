@@ -6,6 +6,7 @@ import platform
 import re
 import shlex
 import subprocess
+import sys
 import threading
 import time
 import webbrowser
@@ -422,6 +423,13 @@ def animation_preflight(data):
     return conflicts
 
 
+def missing_render_tasks(data):
+    return [
+        task for task in data["queue"]
+        if task.get("kind") == "render" and not Path(str(task.get("filePath", ""))).is_file()
+    ]
+
+
 def queue_with_states(data):
     current_id = public_state()["currentTaskId"]
     result = []
@@ -429,12 +437,17 @@ def queue_with_states(data):
         task = dict(original)
         if task.get("kind") == "system":
             task["state"] = None
-        elif task.get("id") == current_id:
-            task["state"] = "Rendering"
-        elif rendered_output_exists(task, data["settings"]):
-            task["state"] = "Finished"
+            task["missing"] = False
         else:
-            task["state"] = "Waiting"
+            task["missing"] = not Path(str(task.get("filePath", ""))).is_file()
+            if task["missing"]:
+                task["state"] = "File missing"
+            elif task.get("id") == current_id:
+                task["state"] = "Rendering"
+            elif rendered_output_exists(task, data["settings"]):
+                task["state"] = "Finished"
+            else:
+                task["state"] = "Waiting"
         result.append(task)
     return result
 
@@ -471,7 +484,7 @@ def update_progress(line, task, started, completed_frames):
             tile_fraction = min(1.0, max(0.0, tile_fraction))
 
     if task["type"] == "image":
-        progress = round((tile_fraction or 0) * 100, 1)
+        progress = round((tile_fraction or 0) * 100)
         with state_lock:
             # Some Blender builds briefly report the completed sample count while
             # already switching the tile number. Never move the progress bar back.
@@ -495,7 +508,7 @@ def update_progress(line, task, started, completed_frames):
         elif overall > 0:
             eta_seconds = elapsed / overall * (1 - overall)
         with state_lock:
-            runtime["progress"] = max(runtime["progress"], round(overall * 100, 1))
+            runtime["progress"] = max(runtime["progress"], round(overall * 100))
             runtime["eta"] = round(eta_seconds) if eta_seconds is not None else None
     return completed_frames
 
@@ -539,7 +552,7 @@ def execute_queue(existing_policy="overwrite"):
                 render_tasks = [{**task, "frameStart": start, "frameEnd": end} for start, end in contiguous_ranges(missing)]
                 total = int(task["frameEnd"]) - int(task["frameStart"]) + 1
                 with state_lock:
-                    runtime["progress"] = round(len(existing) / total * 100, 1)
+                    runtime["progress"] = round(len(existing) / total * 100)
                 append_log(f"Skipping {len(existing)} existing frame(s); rendering {len(missing)} missing frame(s).")
             task_failed = False
             for render_task in render_tasks:
@@ -634,12 +647,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/queue":
             data = load_data()
             queue = self.read_json().get("queue", [])
-            data["queue"] = [{key: value for key, value in task.items() if key != "state"} for task in queue]
+            data["queue"] = [{key: value for key, value in task.items() if key not in ("state", "missing")} for task in queue]
             save_data(data)
             return self.json_response({"ok": True})
         if path == "/api/run":
             if public_state()["status"] == "Active":
                 return self.json_response({"error": "Queue is already active."}, 409)
+            missing = missing_render_tasks(load_data())
+            if missing:
+                names = ", ".join(str(task.get("fileName") or task.get("filePath") or "Unknown file") for task in missing)
+                return self.json_response({"error": f"Cannot start render. Missing Blender file(s): {names}"}, 409)
             policy = self.read_json().get("existingFrames", "overwrite")
             if policy not in ("skip", "overwrite"):
                 return self.json_response({"error": "Invalid existing frame policy."}, 400)
@@ -659,6 +676,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
 
+class AppServer(ThreadingHTTPServer):
+    allow_reuse_address = False
+    allow_reuse_port = False
+
+
+def show_startup_error(message):
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "BlenderCMD Render GUI", 0x10)
+            return
+        except Exception:
+            pass
+    print(f"Error: {message}", file=sys.stderr)
+
+
 def main():
     global server_instance, tray_process
     config = load_data()
@@ -669,7 +702,17 @@ def main():
         raise ValueError("server.port must be a number between 1 and 65535.")
     if not 1 <= port <= 65535:
         raise ValueError("server.port must be a number between 1 and 65535.")
-    server = ThreadingHTTPServer((host, port), Handler)
+    try:
+        server = AppServer((host, port), Handler)
+    except OSError as error:
+        if error.errno in (48, 98, 10048) or getattr(error, "winerror", None) == 10048:
+            show_startup_error(
+                f"BlenderCMD Render GUI could not start because {host}:{port} is already in use.\n\n"
+                "The application is probably already running. Check the system tray or choose a different port in configuration.yaml."
+            )
+            return 1
+        show_startup_error(f"BlenderCMD Render GUI could not start on {host}:{port}.\n\n{error}")
+        return 1
     server_instance = server
     browser_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
     app_url = f"http://{browser_host}:{port}"
@@ -679,7 +722,7 @@ def main():
     tray_script = APP_DIR / "tray.ps1"
     if IS_WINDOWS and tray_script.exists():
         tray_process = subprocess.Popen(
-            ["powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", str(tray_script), "-HostName", browser_host, "-Port", str(port)],
+            ["powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", str(tray_script), "-HostName", browser_host, "-Port", str(port), "-AppProcessId", str(os.getpid())],
             creationflags=NO_WINDOW,
         )
     threading.Timer(0.7, lambda: webbrowser.open(app_url)).start()
@@ -693,7 +736,8 @@ def main():
         server_instance = None
         if tray_process and tray_process.poll() is None:
             tray_process.terminate()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -31,7 +31,7 @@ function startDemoRender() {
   demoState.runtime = { status: "Active", currentTaskId: task?.id || null, progress: 0, eta: 96, log: ["Demo queue started.", `Rendering ${task?.fileName || "Scene.blend"}`] };
   if (task) task.state = "Rendering";
   demoTimer = setInterval(() => {
-    demoState.runtime.progress = Math.min(100, Math.round((demoState.runtime.progress + 4.7) * 10) / 10);
+    demoState.runtime.progress = Math.min(100, Math.round(demoState.runtime.progress + 5));
     demoState.runtime.eta = Math.max(0, Math.round(96 * (1 - demoState.runtime.progress / 100)));
     demoState.runtime.log.push(`Fra: 42 | Remaining: 00:${String(demoState.runtime.eta).padStart(2, "0")}.00 | Rendered ${Math.max(1, Math.round(demoState.runtime.progress / 100 * 48))}/48 Tiles, Sample 384/512`);
     if (demoState.runtime.progress >= 100) {

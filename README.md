@@ -18,7 +18,7 @@ The server listens on `127.0.0.1` only. No authentication, database, framework, 
 - Animation output stored in a per-project subdirectory
 - Detect completed output files when the application starts
 - Skip existing frames in a partially rendered PNG sequence or overwrite the complete range
-- Live Blender console output, tile/sample progress, and remaining-time estimate
+- Live Blender console output, whole-number tile/sample progress, and remaining-time estimate
 - Asynchronous ntfy.sh notifications after successful renders
 - Optional shutdown or suspend task at the end of the queue
 - Windows tray icon and background launch
@@ -83,6 +83,10 @@ chmod +x start.command
 The interface is available at [http://127.0.0.1:5050](http://127.0.0.1:5050).
 
 ## Configuration
+
+Release archives include a clean `configuration.yaml` with empty Blender and output paths. On first launch, the application prompts you to open Settings and complete these required paths. Example values remain available only in `configuration-example.yaml`.
+
+The queue validates saved `.blend` paths before rendering. Missing files are marked in red with a `File missing` state, and rendering remains disabled until the queue is corrected.
 
 Runtime configuration is stored in `configuration.yaml`. This file is ignored by Git because it can contain private paths, an ntfy.sh server/topic, and the current render queue.
 

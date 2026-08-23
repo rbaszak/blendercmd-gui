@@ -8,9 +8,26 @@
   font-size: 17px;
 }
 
+.missing-file {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--red);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  vertical-align: 1px;
+}
+
+.missing-file:hover { filter: brightness(1.12); }
+
 html[data-theme="light"] {
   color-scheme: light;
-  --bg: #f4f6f8;
+  --bg: #e4e4e4;
   --panel: #ffffff;
   --panel2: #edf0f4;
   --line: #d9dee5;
@@ -21,7 +38,7 @@ html[data-theme="light"] {
 }
 
 html[data-theme="light"] body {
-  background: radial-gradient(circle at 70% -20%, #dfe8f2 0, transparent 36%), var(--bg);
+  background: radial-gradient(circle at 70% -20%, #d4dbe3 0, transparent 38%), var(--bg);
 }
 
 html[data-theme="light"] .topbar { background: #ffffffeb; }

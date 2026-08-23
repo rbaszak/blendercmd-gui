@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Detection of completed renders and partial PNG sequences.
 - Choice between skipping existing animation frames and overwriting them.
 - Live Blender output, tile/sample progress, and remaining-time estimates.
+- Whole-number render progress for a cleaner status display.
+- Missing-file detection with queue warnings and render blocking.
+- First-run setup prompt when required paths are empty.
+- Reliable single-instance port handling and tray shutdown fallback.
+- Dark and light themes with the selected theme remembered locally.
 - Separate output directories and custom Blender arguments for images and animations.
 - Per-animation output subdirectories.
 - Asynchronous ntfy.sh notifications after successful renders.
