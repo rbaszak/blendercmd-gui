@@ -1,0 +1,21 @@
+.demo-banner {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 7px 18px;
+  color: #d9dde4;
+  background: #23272e;
+  border-bottom: 1px solid #363c45;
+  font-size: 12px;
+}
+
+.demo-banner strong { color: #ff9b61; }
+.demo-banner span { color: #949aa4; }
+.demo-banner a { color: #f3f4f6; text-decoration: none; }
+.demo-banner a:hover { text-decoration: underline; }
+
+@media (max-width: 620px) {
+  .demo-banner span { display: none; }
+}

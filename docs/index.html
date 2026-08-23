@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blender Render Queue — Interactive Demo</title>
+  <meta name="description" content="A lightweight local render queue for Blender on Windows.">
+  <meta property="og:title" content="Blender Render Queue">
+  <meta property="og:description" content="A lightweight local browser interface for Blender render automation.">
+  <meta property="og:image" content="https://rbaszak.github.io/blendercmd-gui/screenshot.png">
+  <link rel="icon" href="./icon.png">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./ntfy.css">
+  <link rel="stylesheet" href="./demo.css">
+</head>
+<body>
+  <div class="demo-banner"><strong>Interactive demo</strong><span>Blender and system actions are simulated.</span><a href="https://github.com/rbaszak/blendercmd-gui">View on GitHub ↗</a></div>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">B</span><div><strong>Blender Render Queue</strong><small>Local renderer</small></div></div>
+    <nav><button class="tab active" data-page="render">Render</button><button class="tab" data-page="settings">Settings</button></nav>
+    <div class="status-group">
+      <div id="ntfyBadge" class="ntfy-status disabled" title="ntfy notifications disabled"><span>●</span> ntfy</div>
+      <div id="statusBadge" class="status idle"><span></span> Idle</div>
+    </div>
+  </header>
+
+  <main>
+    <section id="renderPage" class="page active">
+      <div class="hero-row"><div><p class="eyebrow">RENDER WORKSPACE</p><h1>Queue</h1><p class="subtle">Prepare and run Blender jobs in sequence.</p></div><button id="runBtn" class="primary">▶ Run render</button><button id="cancelBtn" class="danger hidden">■ Cancel</button></div>
+      <div class="progress-card hidden" id="progressCard"><div><strong id="currentTask">Starting…</strong><span id="progressText">0%</span></div><div class="track"><div id="progressBar"></div></div><small id="etaText">Estimating remaining time…</small></div>
+      <div class="toolbar"><button id="addBtn" class="primary secondary">＋ Add new task</button><button id="shutdownBtn">＋ Shutdown task</button><button id="suspendBtn">＋ Suspend task</button><span></span><button id="upBtn" disabled>↑</button><button id="downBtn" disabled>↓</button><button id="deleteBtn" disabled>Delete from queue</button><button id="clearBtn" disabled>Clear queue</button></div>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>File name</th><th>Type</th><th>Frames</th><th>Output</th><th>State</th></tr></thead><tbody id="queueBody"></tbody></table><div id="emptyState" class="empty"><div>◇</div><h2>Your queue is empty</h2><p>Add a Blender file to prepare the first render.</p><button id="emptyAddBtn" class="primary secondary">＋ Add new task</button></div></div>
+      <details class="console"><summary>Console output</summary><pre id="consoleLog">No render output yet.</pre></details>
+    </section>
+
+    <section id="settingsPage" class="page">
+      <p class="eyebrow">APPLICATION</p><h1>Settings</h1><p class="subtle">Paths are stored locally next to the application.</p>
+      <form id="settingsForm" class="settings-card">
+        <label>Blender executable <small>The blender.exe used to execute jobs.</small><div class="path-row"><input id="blenderPath" required><button type="button" data-browse="exe">Browse</button></div></label>
+        <label>Image output directory <small>Destination for still image renders.</small><div class="path-row"><input id="imageOutputPath" required><button type="button" data-browse="folder">Browse</button></div></label>
+        <label>Animation output directory <small>Destination for animation frame sequences.</small><div class="path-row"><input id="animationOutputPath" required><button type="button" data-browse="folder">Browse</button></div></label>
+        <label>Image custom arguments <small>Optional Blender arguments inserted before <code>-f</code>, e.g. <code>-E BLENDER_EEVEE_NEXT</code>.</small><input id="imageCustomArguments" placeholder="Optional"></label>
+        <label>Animation custom arguments <small>Optional Blender arguments inserted before <code>-s ... -e ... -a</code>.</small><input id="animationCustomArguments" placeholder="Optional"></label>
+        <div class="form-actions"><span id="saveNotice"></span><button class="primary" type="submit">Save settings</button></div>
+      </form>
+    </section>
+  </main>
+
+  <dialog id="taskDialog"><form id="taskForm"><div class="dialog-head"><div><p class="eyebrow">NEW RENDER</p><h2>Add task</h2></div><button type="button" class="icon-btn" id="closeDialog">×</button></div>
+    <label>Blender file<input id="taskFile" readonly></label>
+    <div class="grid-2"><label>Render type<select id="taskType"><option value="image">Image</option><option value="animation">Animation</option></select></label><label>Output format<select id="outputFormat"><option value="JPEG">JPEG</option><option value="PNG" selected>PNG</option><option value="EXR">EXR</option></select></label></div>
+    <div class="grid-2"><label>Start frame<input id="frameStart" type="number" value="0" required></label><label id="endFrameLabel" class="hidden">End frame<input id="frameEnd" type="number" value="250" required></label></div>
+    <label>Output file name<input id="outputName" required><small>Use # characters as frame-number placeholders.</small></label>
+    <div class="dialog-actions"><button type="button" id="cancelDialog">Cancel</button><button class="primary" type="submit">Add to queue</button></div>
+  </form></dialog>
+  <dialog id="existingFramesDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">EXISTING FRAMES</p><h2>Animation frames already exist</h2></div></div>
+    <p class="subtle" id="existingFramesSummary"></p>
+    <p>Do you want to keep existing PNG files and render only missing frames, or overwrite the complete animation range?</p>
+    <div class="dialog-actions"><button value="cancel">Cancel</button><button id="overwriteFramesBtn" value="overwrite">Overwrite</button><button id="skipFramesBtn" class="primary" value="skip">Skip existing frames</button></div>
+  </form></dialog>
+  <div id="toast" role="status"></div>
+  <script src="./demo-api.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

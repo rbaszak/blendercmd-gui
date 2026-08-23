@@ -4,6 +4,10 @@ A lightweight, local browser interface for preparing and running sequential Blen
 
 The server listens on `127.0.0.1` only. No authentication, database, framework, or third-party Python package is required.
 
+[**Open the interactive demo →**](https://rbaszak.github.io/blendercmd-gui/)
+
+![Blender Render Queue interface](screenshot.png)
+
 ## Features
 
 - Queue still-image and animation renders from `.blend` files
