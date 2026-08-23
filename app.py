@@ -5,7 +5,9 @@ import os
 import platform
 import re
 import shlex
+import shutil
 import subprocess
+import sys
 import threading
 import time
 import webbrowser
@@ -18,7 +20,6 @@ APP_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = APP_DIR / "configuration.yaml"
 LEGACY_DATA_FILE = APP_DIR / "data.json"
 STATIC_DIR = APP_DIR / "static"
-HOST, PORT = "127.0.0.1", 5050
 SYSTEM = platform.system()
 IS_WINDOWS = SYSTEM == "Windows"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -42,6 +43,10 @@ runtime = {
 
 def default_data():
     return {
+        "server": {
+            "host": "localhost",
+            "port": 5050,
+        },
         "settings": {
             "blenderPath": r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" if IS_WINDOWS else "blender",
             "imageOutputPath": "",
@@ -81,6 +86,9 @@ def load_data():
 
 def merge_defaults(data):
     defaults = default_data()
+    data.setdefault("server", {})
+    for key, value in defaults["server"].items():
+        data["server"].setdefault(key, value)
     data.setdefault("settings", {})
     for key, value in defaults["settings"].items():
         data["settings"].setdefault(key, value)
@@ -102,7 +110,7 @@ def parse_yaml_scalar(value):
 
 
 def parse_yaml_config(text):
-    data = {"settings": {}, "notifications": {}, "queue": []}
+    data = {"server": {}, "settings": {}, "notifications": {}, "queue": []}
     section = None
     queue_item = None
     for number, raw_line in enumerate(text.splitlines(), 1):
@@ -119,7 +127,7 @@ def parse_yaml_config(text):
                 data["queue"] = []
             queue_item = None
             continue
-        if section in ("settings", "notifications") and raw_line.startswith("  "):
+        if section in ("server", "settings", "notifications") and raw_line.startswith("  "):
             key, value = raw_line.strip().split(":", 1)
             data[section][key.strip()] = parse_yaml_scalar(value)
         elif section == "queue":
@@ -139,7 +147,10 @@ def yaml_scalar(value):
 
 
 def save_data(data):
-    lines = ["settings:"]
+    lines = ["server:"]
+    for key, value in data.get("server", {}).items():
+        lines.append(f"  {key}: {yaml_scalar(value)}")
+    lines.append("settings:")
     for key, value in data.get("settings", {}).items():
         lines.append(f"  {key}: {yaml_scalar(value)}")
     lines.append("notifications:")
@@ -247,7 +258,102 @@ def public_state():
         return {key: (list(value) if isinstance(value, list) else value) for key, value in runtime.items() if key != "cancelRequested"}
 
 
+def executable_from_command(command):
+    command = os.path.expandvars(str(command).strip())
+    quoted = re.match(r'^"([^"]+\.exe)"', command, re.IGNORECASE)
+    unquoted = re.match(r'^(.+?\.exe)(?:\s|$)', command, re.IGNORECASE)
+    match = quoted or unquoted
+    if not match:
+        return None
+    executable = Path(match.group(1))
+    if executable.name.lower() == "blender-launcher.exe":
+        blender = executable.with_name("blender.exe")
+        if blender.is_file():
+            executable = blender
+    return executable if executable.is_file() else None
+
+
+def windows_blend_association():
+    if not IS_WINDOWS:
+        return None
+    try:
+        import winreg
+        prog_id = None
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.blend\UserChoice") as key:
+                prog_id = winreg.QueryValueEx(key, "ProgId")[0]
+        except OSError:
+            pass
+        if not prog_id:
+            with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, ".blend") as key:
+                prog_id = winreg.QueryValueEx(key, None)[0]
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, rf"{prog_id}\shell\open\command") as key:
+            return executable_from_command(winreg.QueryValueEx(key, None)[0])
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def detect_blender_executable():
+    associated = windows_blend_association()
+    if associated:
+        return associated
+    on_path = shutil.which("blender") or shutil.which("blender.exe")
+    if on_path and Path(on_path).is_file():
+        return Path(on_path)
+    candidates = []
+    if IS_WINDOWS:
+        for variable in ("ProgramFiles", "ProgramFiles(x86)"):
+            root = os.environ.get(variable)
+            if root:
+                candidates.extend(Path(root).glob(r"Blender Foundation\Blender *\blender.exe"))
+    elif SYSTEM == "Darwin":
+        candidates.append(Path("/Applications/Blender.app/Contents/MacOS/Blender"))
+    else:
+        candidates.extend(Path(path) for path in ("/usr/bin/blender", "/usr/local/bin/blender", "/snap/bin/blender"))
+    existing = [path for path in candidates if path.is_file()]
+    existing.sort(key=lambda path: tuple(int(number) for number in re.findall(r"\d+", str(path))), reverse=True)
+    return existing[0] if existing else None
+
+
+def system_default_settings():
+    blender = detect_blender_executable()
+    return {
+        "blenderFound": blender is not None,
+        "settings": {
+            "blenderPath": str(blender) if blender else "",
+            "imageOutputPath": str(APP_DIR / "output"),
+            "animationOutputPath": str(APP_DIR / "animations-output"),
+        },
+    }
+
+
 def choose_path(kind):
+    if SYSTEM == "Darwin":
+        if kind == "folder":
+            script = 'POSIX path of (choose folder with prompt "Select output directory")'
+        elif kind == "exe":
+            script = 'POSIX path of (choose file with prompt "Select Blender" of type {"com.apple.application-bundle"})'
+        else:
+            script = 'POSIX path of (choose file with prompt "Select a Blender project")'
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode != 0:
+            error = result.stderr.strip()
+            if "-128" in error or "canceled" in error.lower() or "cancelled" in error.lower():
+                return ""
+            raise RuntimeError(error or "macOS file picker could not be opened.")
+        selected = Path(result.stdout.strip().rstrip("/"))
+        if kind == "exe" and selected.suffix.lower() == ".app":
+            blender = selected / "Contents" / "MacOS" / "Blender"
+            if blender.is_file():
+                return str(blender)
+            raise RuntimeError("The selected application does not contain a Blender executable.")
+        return str(selected)
     if not IS_WINDOWS:
         import tkinter as tk
         from tkinter import filedialog
@@ -299,6 +405,7 @@ $owner.Close()
         text=True,
         encoding="utf-8",
         errors="replace",
+        creationflags=NO_WINDOW,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "Windows dialog could not be opened.")
@@ -413,6 +520,13 @@ def animation_preflight(data):
     return conflicts
 
 
+def missing_render_tasks(data):
+    return [
+        task for task in data["queue"]
+        if task.get("kind") == "render" and not Path(str(task.get("filePath", ""))).is_file()
+    ]
+
+
 def queue_with_states(data):
     current_id = public_state()["currentTaskId"]
     result = []
@@ -420,12 +534,17 @@ def queue_with_states(data):
         task = dict(original)
         if task.get("kind") == "system":
             task["state"] = None
-        elif task.get("id") == current_id:
-            task["state"] = "Rendering"
-        elif rendered_output_exists(task, data["settings"]):
-            task["state"] = "Finished"
+            task["missing"] = False
         else:
-            task["state"] = "Waiting"
+            task["missing"] = not Path(str(task.get("filePath", ""))).is_file()
+            if task["missing"]:
+                task["state"] = "File missing"
+            elif task.get("id") == current_id:
+                task["state"] = "Rendering"
+            elif rendered_output_exists(task, data["settings"]):
+                task["state"] = "Finished"
+            else:
+                task["state"] = "Waiting"
         result.append(task)
     return result
 
@@ -462,7 +581,7 @@ def update_progress(line, task, started, completed_frames):
             tile_fraction = min(1.0, max(0.0, tile_fraction))
 
     if task["type"] == "image":
-        progress = round((tile_fraction or 0) * 100, 1)
+        progress = round((tile_fraction or 0) * 100)
         with state_lock:
             # Some Blender builds briefly report the completed sample count while
             # already switching the tile number. Never move the progress bar back.
@@ -486,7 +605,7 @@ def update_progress(line, task, started, completed_frames):
         elif overall > 0:
             eta_seconds = elapsed / overall * (1 - overall)
         with state_lock:
-            runtime["progress"] = max(runtime["progress"], round(overall * 100, 1))
+            runtime["progress"] = max(runtime["progress"], round(overall * 100))
             runtime["eta"] = round(eta_seconds) if eta_seconds is not None else None
     return completed_frames
 
@@ -530,7 +649,7 @@ def execute_queue(existing_policy="overwrite"):
                 render_tasks = [{**task, "frameStart": start, "frameEnd": end} for start, end in contiguous_ranges(missing)]
                 total = int(task["frameEnd"]) - int(task["frameStart"]) + 1
                 with state_lock:
-                    runtime["progress"] = round(len(existing) / total * 100, 1)
+                    runtime["progress"] = round(len(existing) / total * 100)
                 append_log(f"Skipping {len(existing)} existing frame(s); rendering {len(missing)} missing frame(s).")
             task_failed = False
             for render_task in render_tasks:
@@ -596,6 +715,8 @@ class Handler(BaseHTTPRequestHandler):
             data["runtime"] = public_state()
             data["queue"] = queue_with_states(data)
             return self.json_response(data)
+        if path == "/api/system-defaults":
+            return self.json_response(system_default_settings())
         if path.startswith("/api/dialog/"):
             try:
                 return self.json_response({"path": choose_path(path.rsplit("/", 1)[-1])})
@@ -619,18 +740,29 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/settings":
             data = load_data()
-            data["settings"] = self.read_json()
+            settings = self.read_json()
+            try:
+                for key in ("imageOutputPath", "animationOutputPath"):
+                    if str(settings.get(key, "")).strip():
+                        Path(settings[key]).mkdir(parents=True, exist_ok=True)
+            except OSError as error:
+                return self.json_response({"error": f"Could not create output directory: {error}"}, 400)
+            data["settings"] = settings
             save_data(data)
             return self.json_response({"ok": True})
         if path == "/api/queue":
             data = load_data()
             queue = self.read_json().get("queue", [])
-            data["queue"] = [{key: value for key, value in task.items() if key != "state"} for task in queue]
+            data["queue"] = [{key: value for key, value in task.items() if key not in ("state", "missing")} for task in queue]
             save_data(data)
             return self.json_response({"ok": True})
         if path == "/api/run":
             if public_state()["status"] == "Active":
                 return self.json_response({"error": "Queue is already active."}, 409)
+            missing = missing_render_tasks(load_data())
+            if missing:
+                names = ", ".join(str(task.get("fileName") or task.get("filePath") or "Unknown file") for task in missing)
+                return self.json_response({"error": f"Cannot start render. Missing Blender file(s): {names}"}, 409)
             policy = self.read_json().get("existingFrames", "overwrite")
             if policy not in ("skip", "overwrite"):
                 return self.json_response({"error": "Invalid existing frame policy."}, 400)
@@ -650,20 +782,56 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
 
+class AppServer(ThreadingHTTPServer):
+    allow_reuse_address = False
+    allow_reuse_port = False
+
+
+def show_startup_error(message):
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "BlenderCMD Render GUI", 0x10)
+            return
+        except Exception:
+            pass
+    print(f"Error: {message}", file=sys.stderr)
+
+
 def main():
     global server_instance, tray_process
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    config = load_data()
+    host = str(config["server"].get("host", "localhost")).strip() or "localhost"
+    try:
+        port = int(config["server"].get("port", 5050))
+    except (TypeError, ValueError):
+        raise ValueError("server.port must be a number between 1 and 65535.")
+    if not 1 <= port <= 65535:
+        raise ValueError("server.port must be a number between 1 and 65535.")
+    try:
+        server = AppServer((host, port), Handler)
+    except OSError as error:
+        if error.errno in (48, 98, 10048) or getattr(error, "winerror", None) == 10048:
+            show_startup_error(
+                f"BlenderCMD Render GUI could not start because {host}:{port} is already in use.\n\n"
+                "The application is probably already running. Check the system tray or choose a different port in configuration.yaml."
+            )
+            return 1
+        show_startup_error(f"BlenderCMD Render GUI could not start on {host}:{port}.\n\n{error}")
+        return 1
     server_instance = server
-    print(f"Blender Render Queue: http://{HOST}:{PORT}")
+    browser_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    app_url = f"http://{browser_host}:{port}"
+    print(f"Blender Render Queue: {app_url}")
     if not IS_WINDOWS:
         print("Keep this terminal open. Press Ctrl+C to stop the application.")
     tray_script = APP_DIR / "tray.ps1"
     if IS_WINDOWS and tray_script.exists():
         tray_process = subprocess.Popen(
-            ["powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", str(tray_script)],
+            ["powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", str(tray_script), "-HostName", browser_host, "-Port", str(port), "-AppProcessId", str(os.getpid())],
             creationflags=NO_WINDOW,
         )
-    threading.Timer(0.7, lambda: webbrowser.open(f"http://{HOST}:{PORT}")).start()
+    threading.Timer(0.7, lambda: webbrowser.open(app_url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -674,7 +842,8 @@ def main():
         server_instance = None
         if tray_process and tray_process.poll() is None:
             tray_process.terminate()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

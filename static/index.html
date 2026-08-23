@@ -5,14 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Blender Render Queue</title>
   <meta name="description" content="A lightweight local render queue for Blender on Windows.">
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("brq-theme")==="light"?"light":"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/ntfy.css">
+  <link rel="stylesheet" href="/theme.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">B</span><div><strong>Blender Render Queue</strong><small>Local renderer</small></div></div>
     <nav><button class="tab active" data-page="render">Render</button><button class="tab" data-page="settings">Settings</button></nav>
     <div class="status-group">
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to light mode" title="Switch to light mode">☀</button>
       <div id="ntfyBadge" class="ntfy-status disabled" title="ntfy.sh notifications disabled"><span>●</span> ntfy.sh</div>
       <div id="statusBadge" class="status idle"><span></span> Idle</div>
     </div>
@@ -24,7 +27,7 @@
       <div class="progress-card hidden" id="progressCard"><div><strong id="currentTask">Starting…</strong><span id="progressText">0%</span></div><div class="track"><div id="progressBar"></div></div><small id="etaText">Estimating remaining time…</small></div>
       <div class="toolbar"><button id="addBtn" class="primary secondary">＋ Add new task</button><button id="shutdownBtn">＋ Shutdown task</button><button id="suspendBtn">＋ Suspend task</button><span></span><button id="upBtn" disabled>↑</button><button id="downBtn" disabled>↓</button><button id="deleteBtn" disabled>Delete from queue</button><button id="clearBtn" disabled>Clear queue</button></div>
       <div class="table-wrap"><table><thead><tr><th>#</th><th>File name</th><th>Type</th><th>Frames</th><th>Output</th><th>State</th></tr></thead><tbody id="queueBody"></tbody></table><div id="emptyState" class="empty"><div>◇</div><h2>Your queue is empty</h2><p>Add a Blender file to prepare the first render.</p><button id="emptyAddBtn" class="primary secondary">＋ Add new task</button></div></div>
-      <details class="console"><summary>Console output</summary><pre id="consoleLog">No render output yet.</pre></details>
+      <details id="consoleDetails" class="console"><summary>Console output</summary><pre id="consoleLog">No render output yet.</pre></details>
     </section>
 
     <section id="settingsPage" class="page">
@@ -51,6 +54,14 @@
     <p class="subtle" id="existingFramesSummary"></p>
     <p>Do you want to keep existing PNG files and render only missing frames, or overwrite the complete animation range?</p>
     <div class="dialog-actions"><button value="cancel">Cancel</button><button id="overwriteFramesBtn" value="overwrite">Overwrite</button><button id="skipFramesBtn" class="primary" value="skip">Skip existing frames</button></div>
+  </form></dialog>
+  <dialog id="setupDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">WELCOME</p><h2>Complete the initial setup</h2></div></div>
+    <p class="subtle">Blender and output paths are not configured yet. Set them before adding and running your first render.</p>
+    <div class="dialog-actions"><button value="cancel">Not now</button><button id="openSettingsBtn" value="settings">Open Settings</button><button id="useSystemDefaultsBtn" class="primary" type="button">Use system defaults</button></div>
+  </form></dialog>
+  <dialog id="blenderNotFoundDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">BLENDER NOT FOUND</p><h2>Select Blender manually</h2></div></div>
+    <p class="subtle">The application could not detect a system Blender installation. Output directories were filled in, but you still need to select the Blender executable.</p>
+    <div class="dialog-actions"><button class="primary" value="ok">OK</button></div>
   </form></dialog>
   <div id="toast" role="status"></div>
   <script src="/app.js"></script>

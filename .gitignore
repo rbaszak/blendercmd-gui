@@ -1,5 +1,6 @@
 # Private runtime configuration and queue
 configuration.yaml
+!packaging/configuration.yaml
 
 # Python
 __pycache__/
@@ -17,3 +18,4 @@ Thumbs.db
 *.log
 output/
 renders/
+dist/

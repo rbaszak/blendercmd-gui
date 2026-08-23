@@ -1,0 +1,15 @@
+# Ready-to-run configuration bundled with release archives
+server:
+  host: "localhost"
+  port: 5050
+settings:
+  blenderPath: ""
+  imageOutputPath: ""
+  animationOutputPath: ""
+  imageCustomArguments: ""
+  animationCustomArguments: ""
+notifications:
+  enabled: false
+  server: "https://ntfy.sh"
+  topic: ""
+queue: []
