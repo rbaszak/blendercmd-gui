@@ -1,10 +1,10 @@
-# Blender Render Queue
+# BlenderCMD Render GUI
 
 A lightweight, local browser interface for preparing and running sequential Blender renders. It replaces manually maintained batch files with a visual queue, progress tracking, configurable output formats, optional ntfy notifications, and end-of-queue power actions.
 
 The server listens on `127.0.0.1` only. No authentication, database, framework, or third-party Python package is required.
 
-[**Open the interactive demo →**](https://rbaszak.github.io/blendercmd-gui/)
+[**Open the interactive demo →**](https://rbaszak.github.io/BlenderCMD-Render-GUI/)
 
 ![Blender Render Queue interface](screenshot.png)
 
@@ -39,8 +39,8 @@ No packages from PyPI are required. `requirements.txt` is intentionally empty.
 ## Installation
 
 ```bash
-git clone https://github.com/rbaszak/blendercmd-gui.git
-cd blendercmd-gui
+git clone https://github.com/rbaszak/BlenderCMD-Render-GUI.git
+cd BlenderCMD-Render-GUI
 cp configuration-example.yaml configuration.yaml
 ```
 
@@ -163,3 +163,11 @@ start.sh / start.command     Linux and macOS launchers
 tray.ps1                     Windows tray integration
 DEPENDENCIES.md              Platform dependency instructions
 ```
+
+## License
+
+Released into the public domain under [The Unlicense](UNLICENSE). You may copy, modify, publish, use, compile, sell, or distribute this software for any purpose without attribution.
+
+## Development note
+
+This application was vibe-coded with the help of Codex AI.
