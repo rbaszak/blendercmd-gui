@@ -61,15 +61,15 @@ Edit the Blender and output paths, or set them later from the Settings page.
 
 ### Windows
 
-Double-click `start.vbs` or `start.bat`. The application starts without a console window, opens the browser, and remains available from the Windows system tray.
+Double-click `start-windows.bat`. The application starts without a console window, opens the browser, and remains available from the Windows system tray.
 
 Use the tray menu's **Exit** action to stop the server. Closing the browser tab does not stop the application.
 
 ### Linux
 
 ```bash
-chmod +x start.sh
-./start.sh
+chmod +x start-linux.sh
+./start-linux.sh
 ```
 
 Keep the terminal open and press `Ctrl+C` to stop the application safely.
@@ -77,8 +77,8 @@ Keep the terminal open and press `Ctrl+C` to stop the application safely.
 ### macOS
 
 ```bash
-chmod +x start.command
-./start.command
+chmod +x start-macos.command
+./start-macos.command
 ```
 
 The interface is available at [http://127.0.0.1:5050](http://127.0.0.1:5050).
@@ -172,8 +172,9 @@ Do not commit `configuration.yaml`; use `configuration-example.yaml` for public 
 app.py                       Local HTTP server and Blender runner
 static/                      Browser interface
 configuration-example.yaml  Public configuration template
-start.vbs / start.bat        Windows launchers
-start.sh / start.command     Linux and macOS launchers
+start-windows.bat / .vbs    Windows launcher and background helper
+start-linux.sh              Linux launcher
+start-macos.command         macOS launcher
 tray.ps1                     Windows tray integration
 DEPENDENCIES.md              Platform dependency instructions
 ```
