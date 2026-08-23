@@ -57,7 +57,11 @@
   </form></dialog>
   <dialog id="setupDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">WELCOME</p><h2>Complete the initial setup</h2></div></div>
     <p class="subtle">Blender and output paths are not configured yet. Set them before adding and running your first render.</p>
-    <div class="dialog-actions"><button value="cancel">Not now</button><button id="openSettingsBtn" class="primary" value="settings">Open Settings</button></div>
+    <div class="dialog-actions"><button value="cancel">Not now</button><button id="openSettingsBtn" value="settings">Open Settings</button><button id="useSystemDefaultsBtn" class="primary" type="button">Use system defaults</button></div>
+  </form></dialog>
+  <dialog id="blenderNotFoundDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">BLENDER NOT FOUND</p><h2>Select Blender manually</h2></div></div>
+    <p class="subtle">The application could not detect a system Blender installation. Output directories were filled in, but you still need to select the Blender executable.</p>
+    <div class="dialog-actions"><button class="primary" value="ok">OK</button></div>
   </form></dialog>
   <div id="toast" role="status"></div>
   <script src="/app.js"></script>

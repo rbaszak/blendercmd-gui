@@ -5,6 +5,7 @@ import os
 import platform
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -255,6 +256,75 @@ def stop_active_render():
 def public_state():
     with state_lock:
         return {key: (list(value) if isinstance(value, list) else value) for key, value in runtime.items() if key != "cancelRequested"}
+
+
+def executable_from_command(command):
+    command = os.path.expandvars(str(command).strip())
+    quoted = re.match(r'^"([^"]+\.exe)"', command, re.IGNORECASE)
+    unquoted = re.match(r'^(.+?\.exe)(?:\s|$)', command, re.IGNORECASE)
+    match = quoted or unquoted
+    if not match:
+        return None
+    executable = Path(match.group(1))
+    if executable.name.lower() == "blender-launcher.exe":
+        blender = executable.with_name("blender.exe")
+        if blender.is_file():
+            executable = blender
+    return executable if executable.is_file() else None
+
+
+def windows_blend_association():
+    if not IS_WINDOWS:
+        return None
+    try:
+        import winreg
+        prog_id = None
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.blend\UserChoice") as key:
+                prog_id = winreg.QueryValueEx(key, "ProgId")[0]
+        except OSError:
+            pass
+        if not prog_id:
+            with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, ".blend") as key:
+                prog_id = winreg.QueryValueEx(key, None)[0]
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, rf"{prog_id}\shell\open\command") as key:
+            return executable_from_command(winreg.QueryValueEx(key, None)[0])
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def detect_blender_executable():
+    associated = windows_blend_association()
+    if associated:
+        return associated
+    on_path = shutil.which("blender") or shutil.which("blender.exe")
+    if on_path and Path(on_path).is_file():
+        return Path(on_path)
+    candidates = []
+    if IS_WINDOWS:
+        for variable in ("ProgramFiles", "ProgramFiles(x86)"):
+            root = os.environ.get(variable)
+            if root:
+                candidates.extend(Path(root).glob(r"Blender Foundation\Blender *\blender.exe"))
+    elif SYSTEM == "Darwin":
+        candidates.append(Path("/Applications/Blender.app/Contents/MacOS/Blender"))
+    else:
+        candidates.extend(Path(path) for path in ("/usr/bin/blender", "/usr/local/bin/blender", "/snap/bin/blender"))
+    existing = [path for path in candidates if path.is_file()]
+    existing.sort(key=lambda path: tuple(int(number) for number in re.findall(r"\d+", str(path))), reverse=True)
+    return existing[0] if existing else None
+
+
+def system_default_settings():
+    blender = detect_blender_executable()
+    return {
+        "blenderFound": blender is not None,
+        "settings": {
+            "blenderPath": str(blender) if blender else "",
+            "imageOutputPath": str(APP_DIR / "output"),
+            "animationOutputPath": str(APP_DIR / "animations-output"),
+        },
+    }
 
 
 def choose_path(kind):
@@ -618,6 +688,8 @@ class Handler(BaseHTTPRequestHandler):
             data["runtime"] = public_state()
             data["queue"] = queue_with_states(data)
             return self.json_response(data)
+        if path == "/api/system-defaults":
+            return self.json_response(system_default_settings())
         if path.startswith("/api/dialog/"):
             try:
                 return self.json_response({"path": choose_path(path.rsplit("/", 1)[-1])})
@@ -641,7 +713,14 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/settings":
             data = load_data()
-            data["settings"] = self.read_json()
+            settings = self.read_json()
+            try:
+                for key in ("imageOutputPath", "animationOutputPath"):
+                    if str(settings.get(key, "")).strip():
+                        Path(settings[key]).mkdir(parents=True, exist_ok=True)
+            except OSError as error:
+                return self.json_response({"error": f"Could not create output directory: {error}"}, 400)
+            data["settings"] = settings
             save_data(data)
             return self.json_response({"ok": True})
         if path == "/api/queue":

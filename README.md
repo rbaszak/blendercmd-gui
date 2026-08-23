@@ -22,6 +22,7 @@ The server listens on `127.0.0.1` only. No authentication, database, framework, 
 - Asynchronous ntfy.sh notifications after successful renders
 - Optional shutdown or suspend task at the end of the queue
 - Windows tray icon and background launch
+- First-run system-default detection for Blender and local output directories
 - Linux and macOS launch scripts with terminal-based shutdown
 - Dark and light themes with the last selection saved in the browser
 - Configurable server host and port
@@ -179,7 +180,7 @@ DEPENDENCIES.md              Platform dependency instructions
 
 ## License
 
-Released into the public domain under [The Unlicense](UNLICENSE). You may copy, modify, publish, use, compile, sell, or distribute this software for any purpose without attribution.
+Licensed under the [MIT License](LICENSE). Copyright © 2026 Rafał Baszak.
 
 ## Development note
 

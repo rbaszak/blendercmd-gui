@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Whole-number render progress for a cleaner status display.
 - Missing-file detection with queue warnings and render blocking.
 - First-run setup prompt when required paths are empty.
+- Optional first-run detection of the system Blender executable and local output directories.
+- Project licensing changed from The Unlicense to the MIT License.
 - Reliable single-instance port handling and tray shutdown fallback.
 - Dark and light themes with the selected theme remembered locally.
 - Separate output directories and custom Blender arguments for images and animations.

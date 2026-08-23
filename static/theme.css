@@ -25,6 +25,25 @@
 
 .missing-file:hover { filter: brightness(1.12); }
 
+#setupDialog .dialog-actions {
+  margin-top: 30px;
+  gap: 12px;
+}
+
+#setupDialog .dialog-actions button:first-child { margin-right: auto; }
+
+@media (max-width: 600px) {
+  #setupDialog .dialog-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  #setupDialog .dialog-actions button {
+    width: 100%;
+    margin-right: 0;
+  }
+}
+
 html[data-theme="light"] {
   color-scheme: light;
   --bg: #e4e4e4;
