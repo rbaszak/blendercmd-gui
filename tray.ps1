@@ -1,3 +1,8 @@
+param(
+    [string]$HostName = 'localhost',
+    [int]$Port = 5050
+)
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
@@ -30,16 +35,17 @@ if (Test-Path -LiteralPath $iconPath) {
 $icon.Text = 'Blender Render Queue'
 $icon.ContextMenuStrip = $menu
 $icon.Visible = $true
+$appUrl = "http://${HostName}:${Port}/"
 
 $openAction = {
-    Start-Process 'http://127.0.0.1:5050/'
+    Start-Process $appUrl
 }
 $openItem.add_Click($openAction)
 $icon.add_DoubleClick($openAction)
 
 $exitItem.add_Click({
     try {
-        Invoke-WebRequest -UseBasicParsing -Method Post -ContentType 'application/json' -Body '{}' 'http://127.0.0.1:5050/api/exit' -TimeoutSec 2 | Out-Null
+        Invoke-WebRequest -UseBasicParsing -Method Post -ContentType 'application/json' -Body '{}' "${appUrl}api/exit" -TimeoutSec 2 | Out-Null
     } catch {}
     $icon.Visible = $false
     $icon.Dispose()

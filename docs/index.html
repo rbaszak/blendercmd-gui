@@ -9,8 +9,10 @@
   <meta property="og:description" content="A lightweight local browser interface for Blender render automation.">
   <meta property="og:image" content="https://rbaszak.github.io/blendercmd-gui/static/screenshot.png">
   <link rel="icon" href="./static/icon.png">
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("brq-theme")==="light"?"light":"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./ntfy.css">
+  <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./demo.css">
 </head>
 <body>
@@ -19,6 +21,7 @@
     <div class="brand"><span class="brand-mark">B</span><div><strong>Blender Render Queue</strong><small>Local renderer</small></div></div>
     <nav><button class="tab active" data-page="render">Render</button><button class="tab" data-page="settings">Settings</button></nav>
     <div class="status-group">
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to light mode" title="Switch to light mode">☀</button>
       <div id="ntfyBadge" class="ntfy-status disabled" title="ntfy.sh notifications disabled"><span>●</span> ntfy.sh</div>
       <div id="statusBadge" class="status idle"><span></span> Idle</div>
     </div>

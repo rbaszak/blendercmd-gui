@@ -18,7 +18,6 @@ APP_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = APP_DIR / "configuration.yaml"
 LEGACY_DATA_FILE = APP_DIR / "data.json"
 STATIC_DIR = APP_DIR / "static"
-HOST, PORT = "127.0.0.1", 5050
 SYSTEM = platform.system()
 IS_WINDOWS = SYSTEM == "Windows"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -42,6 +41,10 @@ runtime = {
 
 def default_data():
     return {
+        "server": {
+            "host": "localhost",
+            "port": 5050,
+        },
         "settings": {
             "blenderPath": r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" if IS_WINDOWS else "blender",
             "imageOutputPath": "",
@@ -81,6 +84,9 @@ def load_data():
 
 def merge_defaults(data):
     defaults = default_data()
+    data.setdefault("server", {})
+    for key, value in defaults["server"].items():
+        data["server"].setdefault(key, value)
     data.setdefault("settings", {})
     for key, value in defaults["settings"].items():
         data["settings"].setdefault(key, value)
@@ -102,7 +108,7 @@ def parse_yaml_scalar(value):
 
 
 def parse_yaml_config(text):
-    data = {"settings": {}, "notifications": {}, "queue": []}
+    data = {"server": {}, "settings": {}, "notifications": {}, "queue": []}
     section = None
     queue_item = None
     for number, raw_line in enumerate(text.splitlines(), 1):
@@ -119,7 +125,7 @@ def parse_yaml_config(text):
                 data["queue"] = []
             queue_item = None
             continue
-        if section in ("settings", "notifications") and raw_line.startswith("  "):
+        if section in ("server", "settings", "notifications") and raw_line.startswith("  "):
             key, value = raw_line.strip().split(":", 1)
             data[section][key.strip()] = parse_yaml_scalar(value)
         elif section == "queue":
@@ -139,7 +145,10 @@ def yaml_scalar(value):
 
 
 def save_data(data):
-    lines = ["settings:"]
+    lines = ["server:"]
+    for key, value in data.get("server", {}).items():
+        lines.append(f"  {key}: {yaml_scalar(value)}")
+    lines.append("settings:")
     for key, value in data.get("settings", {}).items():
         lines.append(f"  {key}: {yaml_scalar(value)}")
     lines.append("notifications:")
@@ -652,18 +661,28 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     global server_instance, tray_process
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    config = load_data()
+    host = str(config["server"].get("host", "localhost")).strip() or "localhost"
+    try:
+        port = int(config["server"].get("port", 5050))
+    except (TypeError, ValueError):
+        raise ValueError("server.port must be a number between 1 and 65535.")
+    if not 1 <= port <= 65535:
+        raise ValueError("server.port must be a number between 1 and 65535.")
+    server = ThreadingHTTPServer((host, port), Handler)
     server_instance = server
-    print(f"Blender Render Queue: http://{HOST}:{PORT}")
+    browser_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    app_url = f"http://{browser_host}:{port}"
+    print(f"Blender Render Queue: {app_url}")
     if not IS_WINDOWS:
         print("Keep this terminal open. Press Ctrl+C to stop the application.")
     tray_script = APP_DIR / "tray.ps1"
     if IS_WINDOWS and tray_script.exists():
         tray_process = subprocess.Popen(
-            ["powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", str(tray_script)],
+            ["powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", str(tray_script), "-HostName", browser_host, "-Port", str(port)],
             creationflags=NO_WINDOW,
         )
-    threading.Timer(0.7, lambda: webbrowser.open(f"http://{HOST}:{PORT}")).start()
+    threading.Timer(0.7, lambda: webbrowser.open(app_url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1,4 +1,7 @@
 # Blender Render Queue configuration example
+server:
+  host: "localhost"
+  port: 5050
 settings:
   blenderPath: "/usr/bin/blender"
   imageOutputPath: "/home/user/Renders/Images"

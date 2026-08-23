@@ -5,14 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Blender Render Queue</title>
   <meta name="description" content="A lightweight local render queue for Blender on Windows.">
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("brq-theme")==="light"?"light":"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/ntfy.css">
+  <link rel="stylesheet" href="/theme.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">B</span><div><strong>Blender Render Queue</strong><small>Local renderer</small></div></div>
     <nav><button class="tab active" data-page="render">Render</button><button class="tab" data-page="settings">Settings</button></nav>
     <div class="status-group">
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to light mode" title="Switch to light mode">☀</button>
       <div id="ntfyBadge" class="ntfy-status disabled" title="ntfy.sh notifications disabled"><span>●</span> ntfy.sh</div>
       <div id="statusBadge" class="status idle"><span></span> Idle</div>
     </div>
