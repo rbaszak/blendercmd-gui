@@ -22,7 +22,7 @@ The server listens on `127.0.0.1` only. No authentication, database, framework, 
 - Asynchronous ntfy.sh notifications after successful renders
 - Optional shutdown or suspend task at the end of the queue
 - Windows tray icon and background launch
-- First-run system-default detection for Blender and local output directories
+- First-run detection and automatic saving of Blender and local output defaults
 - Linux and macOS launch scripts with terminal-based shutdown
 - Dark and light themes with the last selection saved in the browser
 - Configurable server host and port

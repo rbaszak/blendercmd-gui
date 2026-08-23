@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Missing-file detection with queue warnings and render blocking.
 - First-run setup prompt when required paths are empty.
 - Optional first-run detection of the system Blender executable and local output directories.
+- Successfully detected system defaults are saved automatically.
 - Project licensing changed from The Unlicense to the MIT License.
 - Native macOS file pickers replace the crash-prone Tk dialog implementation.
 - Reliable single-instance port handling and tray shutdown fallback.
