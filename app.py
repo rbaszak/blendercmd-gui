@@ -405,6 +405,7 @@ $owner.Close()
         text=True,
         encoding="utf-8",
         errors="replace",
+        creationflags=NO_WINDOW,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "Windows dialog could not be opened.")
