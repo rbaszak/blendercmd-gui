@@ -1,0 +1,45 @@
+.status-group {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-group .status {
+  justify-self: auto;
+}
+
+.ntfy-status {
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  transition: color .2s, border-color .2s, background .2s;
+}
+
+.ntfy-status span {
+  margin-right: 5px;
+  font-size: 9px;
+}
+
+.ntfy-status.enabled {
+  color: #7ce4aa;
+  border-color: #286645;
+  background: #17352466;
+}
+
+.ntfy-status.disabled {
+  color: #ff8e96;
+  border-color: #71333a;
+  background: #3a1d2166;
+}
+
+.toolbar {
+  grid-template-columns: auto auto auto 1fr auto auto auto auto;
+}
+
+@media (max-width: 760px) {
+  .status-group { display: none; }
+}

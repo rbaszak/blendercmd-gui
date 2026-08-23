@@ -1,0 +1,19 @@
+# Private runtime configuration and queue
+configuration.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs and local render output
+*.log
+output/
+renders/

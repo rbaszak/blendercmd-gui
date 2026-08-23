@@ -1,0 +1,12 @@
+# Blender Render Queue configuration example
+settings:
+  blenderPath: "/usr/bin/blender"
+  imageOutputPath: "/home/user/Renders/Images"
+  animationOutputPath: "/home/user/Renders/Animations"
+  imageCustomArguments: ""
+  animationCustomArguments: ""
+notifications:
+  enabled: false
+  server: "https://ntfy.sh"
+  topic: ""
+queue: []
