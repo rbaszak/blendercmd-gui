@@ -328,6 +328,32 @@ def system_default_settings():
 
 
 def choose_path(kind):
+    if SYSTEM == "Darwin":
+        if kind == "folder":
+            script = 'POSIX path of (choose folder with prompt "Select output directory")'
+        elif kind == "exe":
+            script = 'POSIX path of (choose file with prompt "Select Blender" of type {"com.apple.application-bundle"})'
+        else:
+            script = 'POSIX path of (choose file with prompt "Select a Blender project")'
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode != 0:
+            error = result.stderr.strip()
+            if "-128" in error or "canceled" in error.lower() or "cancelled" in error.lower():
+                return ""
+            raise RuntimeError(error or "macOS file picker could not be opened.")
+        selected = Path(result.stdout.strip().rstrip("/"))
+        if kind == "exe" and selected.suffix.lower() == ".app":
+            blender = selected / "Contents" / "MacOS" / "Blender"
+            if blender.is_file():
+                return str(blender)
+            raise RuntimeError("The selected application does not contain a Blender executable.")
+        return str(selected)
     if not IS_WINDOWS:
         import tkinter as tk
         from tkinter import filedialog
