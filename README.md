@@ -4,7 +4,7 @@ A lightweight, local browser interface for preparing and running sequential Blen
 
 The server listens on `127.0.0.1` only. No authentication, database, framework, or third-party Python package is required.
 
-[**Open the interactive demo →**](https://rbaszak.github.io/BlenderCMD-Render-GUI/)
+[**Open the interactive demo →**](https://rbaszak.github.io/blendercmd-gui/)
 
 ![Blender Render Queue interface](screenshot.png)
 
@@ -39,8 +39,8 @@ No packages from PyPI are required. `requirements.txt` is intentionally empty.
 ## Installation
 
 ```bash
-git clone https://github.com/rbaszak/BlenderCMD-Render-GUI.git
-cd BlenderCMD-Render-GUI
+git clone https://github.com/rbaszak/blendercmd-gui.git
+cd blendercmd-gui
 cp configuration-example.yaml configuration.yaml
 ```
 
