@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run Python tests
+        run: python -m unittest discover -s tests -v
+      - name: Check JavaScript syntax
+        run: node --check static/app.js
+      - name: Verify live demo assets
+        run: python -c "from pathlib import Path; assert Path('static/app.js').read_bytes() == Path('docs/app.js').read_bytes(); assert Path('static/theme.css').read_bytes() == Path('docs/theme.css').read_bytes()"

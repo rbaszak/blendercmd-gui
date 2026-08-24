@@ -12,4 +12,6 @@ notifications:
   enabled: false
   server: "https://ntfy.sh"
   topic: ""
+logging:
+  enabled: false
 queue: []

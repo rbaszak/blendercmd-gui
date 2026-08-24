@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Multi-row queue selection and keyboard shortcuts.
+- Context menus for editing, duplicating, opening output folders, modifying commands, and deleting tasks.
+- Queue preflight checks before Blender starts.
+- Persistent failed and cancelled task states with reasons.
+- Optional rotating application and Blender output logs.
+- Cross-platform GitHub Actions checks.
+- Drag-and-drop reordering for individual tasks and selected groups.
+
+### Changed
+
+- Shutdown and suspend actions are mutually exclusive, unique, and always kept at the end of the queue.
+- Output folders opened from the Windows context menu are brought to the foreground.
+- The queue is constrained to the available viewport height and scrolls internally with a sticky header.
+
 ## [0.1.0] - 2026-08-23
 
 ### Added

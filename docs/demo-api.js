@@ -8,9 +8,9 @@ const demoState = {
   },
   notifications: { enabled: true, server: "https://ntfy.example.com", topic: "blender" },
   queue: [
-    { id: "demo-1", kind: "render", filePath: "D:\\Projects\\ProductHero.blend", fileName: "ProductHero.blend", type: "image", outputFormat: "PNG", frameStart: 0, frameEnd: 0, outputName: "ProductHero_####", state: "Finished" },
-    { id: "demo-2", kind: "render", filePath: "D:\\Projects\\CameraMove.blend", fileName: "CameraMove.blend", type: "animation", outputFormat: "PNG_SEQUENCE", frameStart: 1, frameEnd: 120, outputName: "CameraMove_####", state: "Waiting" },
-    { id: "demo-3", kind: "render", filePath: "D:\\Projects\\Turntable.blend", fileName: "Turntable.blend", type: "animation", outputFormat: "MP4", frameStart: 1, frameEnd: 180, outputName: "Turntable", state: "Waiting" },
+    { id: "demo-1", kind: "render", filePath: "D:\\Projects\\ProductHero.blend", fileName: "ProductHero.blend", type: "image", outputFormat: "PNG", frameStart: 0, frameEnd: 0, outputName: "ProductHero_####", state: "Finished", command: '"C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b "D:\\Projects\\ProductHero.blend" -o "D:\\Renders\\Images\\ProductHero_####" -F PNG -f 0' },
+    { id: "demo-2", kind: "render", filePath: "D:\\Projects\\CameraMove.blend", fileName: "CameraMove.blend", type: "animation", outputFormat: "PNG_SEQUENCE", frameStart: 1, frameEnd: 120, outputName: "CameraMove_####", state: "Waiting", command: '"C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b "D:\\Projects\\CameraMove.blend" -o "D:\\Renders\\Animations\\CameraMove\\CameraMove_####" -F PNG -s 1 -e 120 -a' },
+    { id: "demo-3", kind: "render", filePath: "D:\\Projects\\Turntable.blend", fileName: "Turntable.blend", type: "animation", outputFormat: "MP4", frameStart: 1, frameEnd: 180, outputName: "Turntable", state: "Waiting", command: '"C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b "D:\\Projects\\Turntable.blend" -o "D:\\Renders\\Animations\\Turntable\\Turntable" -s 1 -e 180 -a' },
     { id: "demo-4", kind: "system", action: "shutdown", state: null }
   ],
   runtime: { status: "Idle", currentTaskId: null, progress: 0, eta: null, log: [] }
@@ -52,10 +52,14 @@ window.fetch = async function demoFetch(resource, options = {}) {
   if (url.includes("/api/dialog/file")) return demoJson({ path: "D:\\Projects\\NewScene.blend" });
   if (url.includes("/api/dialog/folder")) return demoJson({ path: "D:\\Renders\\Demo" });
   if (url.includes("/api/dialog/exe")) return demoJson({ path: "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" });
-  if (url.endsWith("/api/preflight")) return demoJson({ animations: [] });
+  if (url.endsWith("/api/preflight")) return demoJson({ errors: [], warnings: [], animations: [{ id: "demo-2", fileName: "CameraMove.blend", existing: 36, total: 120 }] });
+  if (url.endsWith("/api/open-output") && method === "POST") return demoJson({ ok: true, path: "D:\\Renders\\Demo" });
   if (url.endsWith("/api/queue") && method === "POST") {
-    demoState.queue = JSON.parse(options.body || "{}").queue || [];
-    return demoJson({ ok: true });
+    const incoming = JSON.parse(options.body || "{}").queue || [];
+    const renders = incoming.filter(task => task.kind !== "system");
+    const system = incoming.find(task => task.kind === "system");
+    demoState.queue = system ? [...renders, system] : renders;
+    return demoJson({ ok: true, queue: demoState.queue });
   }
   if (url.endsWith("/api/settings") && method === "POST") {
     demoState.settings = JSON.parse(options.body || "{}");
@@ -67,6 +71,11 @@ window.fetch = async function demoFetch(resource, options = {}) {
   }
   if (url.endsWith("/api/cancel") && method === "POST") {
     clearInterval(demoTimer);
+    const current = demoState.queue.find(item => item.id === demoState.runtime.currentTaskId);
+    if (current) {
+      current.state = "Cancelled";
+      current.stateReason = "Cancelled by user.";
+    }
     demoState.runtime.status = "Cancelled";
     demoState.runtime.currentTaskId = null;
     demoState.runtime.log.push("Demo render cancelled.");

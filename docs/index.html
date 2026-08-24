@@ -3,20 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Blender Render Queue — Interactive Demo</title>
+  <title>Blender Render Queue</title>
   <meta name="description" content="A lightweight local render queue for Blender on Windows.">
-  <meta property="og:title" content="Blender Render Queue">
-  <meta property="og:description" content="A lightweight local browser interface for Blender render automation.">
-  <meta property="og:image" content="https://rbaszak.github.io/blendercmd-gui/static/screenshot.png">
-  <link rel="icon" href="./static/icon.png">
   <script>try{document.documentElement.dataset.theme=localStorage.getItem("brq-theme")==="light"?"light":"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
-  <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./ntfy.css">
-  <link rel="stylesheet" href="./theme.css">
-  <link rel="stylesheet" href="./demo.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="ntfy.css">
+  <link rel="stylesheet" href="theme.css">
 </head>
 <body>
-  <div class="demo-banner"><strong>Interactive demo</strong><span>Blender and system actions are simulated.</span><a href="https://github.com/rbaszak/blendercmd-gui">View on GitHub ↗</a></div>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">B</span><div><strong>Blender Render Queue</strong><small>Local renderer</small></div></div>
     <nav><button class="tab active" data-page="render">Render</button><button class="tab" data-page="settings">Settings</button></nav>
@@ -31,7 +25,7 @@
     <section id="renderPage" class="page active">
       <div class="hero-row"><div><p class="eyebrow">RENDER WORKSPACE</p><h1>Queue</h1><p class="subtle">Prepare and run Blender jobs in sequence.</p></div><button id="runBtn" class="primary">▶ Run render</button><button id="cancelBtn" class="danger hidden">■ Cancel</button></div>
       <div class="progress-card hidden" id="progressCard"><div><strong id="currentTask">Starting…</strong><span id="progressText">0%</span></div><div class="track"><div id="progressBar"></div></div><small id="etaText">Estimating remaining time…</small></div>
-      <div class="toolbar"><button id="addBtn" class="primary secondary">＋ Add new task</button><button id="shutdownBtn">＋ Shutdown task</button><button id="suspendBtn">＋ Suspend task</button><span></span><button id="upBtn" disabled>↑</button><button id="downBtn" disabled>↓</button><button id="deleteBtn" disabled>Delete from queue</button><button id="clearBtn" disabled>Clear queue</button></div>
+      <div class="toolbar"><button id="addBtn" class="primary secondary">＋ Add new task</button><button id="shutdownBtn">＋ Shutdown task</button><button id="suspendBtn">＋ Suspend task</button><span id="selectionCount" class="selection-count">0 selected</span><button id="upBtn" disabled>↑</button><button id="downBtn" disabled>↓</button><button id="clearBtn" disabled>Clear queue</button></div>
       <div class="table-wrap"><table><thead><tr><th>#</th><th>File name</th><th>Type</th><th>Frames</th><th>Output</th><th>State</th></tr></thead><tbody id="queueBody"></tbody></table><div id="emptyState" class="empty"><div>◇</div><h2>Your queue is empty</h2><p>Add a Blender file to prepare the first render.</p><button id="emptyAddBtn" class="primary secondary">＋ Add new task</button></div></div>
       <details id="consoleDetails" class="console"><summary>Console output</summary><pre id="consoleLog">No render output yet.</pre></details>
     </section>
@@ -49,12 +43,23 @@
     </section>
   </main>
 
-  <dialog id="taskDialog"><form id="taskForm"><div class="dialog-head"><div><p class="eyebrow">NEW RENDER</p><h2>Add task</h2></div><button type="button" class="icon-btn" id="closeDialog">×</button></div>
-    <label>Blender file<input id="taskFile" readonly></label>
+  <dialog id="taskDialog"><form id="taskForm"><div class="dialog-head"><div><p class="eyebrow" id="taskDialogEyebrow">NEW RENDER</p><h2 id="taskDialogTitle">Add task</h2></div><button type="button" class="icon-btn" id="closeDialog">×</button></div>
+    <label>Blender file<div class="path-row"><input id="taskFile" readonly><button type="button" id="taskBrowseBtn">Browse</button></div></label>
     <div class="grid-2"><label>Render type<select id="taskType"><option value="image">Image</option><option value="animation">Animation</option></select></label><label>Output format<select id="outputFormat"><option value="JPEG">JPEG</option><option value="PNG" selected>PNG</option><option value="EXR">EXR</option></select></label></div>
     <div class="grid-2"><label>Start frame<input id="frameStart" type="number" value="0" required></label><label id="endFrameLabel" class="hidden">End frame<input id="frameEnd" type="number" value="250" required></label></div>
     <label>Output file name<input id="outputName" required><small>Use # characters as frame-number placeholders.</small></label>
-    <div class="dialog-actions"><button type="button" id="cancelDialog">Cancel</button><button class="primary" type="submit">Add to queue</button></div>
+    <div class="dialog-actions"><button type="button" id="cancelDialog">Cancel</button><button class="primary" id="taskSubmitBtn" type="submit">Add to queue</button></div>
+  </form></dialog>
+  <dialog id="commandDialog"><form id="commandForm"><div class="dialog-head"><div><p class="eyebrow">ADVANCED</p><h2>Modify command</h2></div><button type="button" class="icon-btn" data-close-dialog="commandDialog">×</button></div>
+    <label>Complete Blender command<small>The command is executed directly without a shell. Edit arguments carefully.</small><textarea id="commandText" rows="9" spellcheck="false" required></textarea></label>
+    <div class="dialog-actions"><button type="button" data-close-dialog="commandDialog">Cancel</button><button type="button" id="resetCommandBtn">Reset generated command</button><button class="primary" type="submit">Save command</button></div>
+  </form></dialog>
+  <dialog id="preflightDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">PREFLIGHT</p><h2 id="preflightTitle">Queue check</h2></div></div>
+    <div id="preflightContent"></div>
+    <div class="dialog-actions"><button value="cancel">Cancel</button><button id="continueRenderBtn" class="primary" value="continue">Continue render</button></div>
+  </form></dialog>
+  <dialog id="deleteDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">CONFIRM</p><h2>Delete selected tasks?</h2></div></div>
+    <p class="subtle" id="deleteSummary"></p><div class="dialog-actions"><button value="cancel">Cancel</button><button class="danger" value="delete">Delete</button></div>
   </form></dialog>
   <dialog id="existingFramesDialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">EXISTING FRAMES</p><h2>Animation frames already exist</h2></div></div>
     <p class="subtle" id="existingFramesSummary"></p>
@@ -69,8 +74,16 @@
     <p class="subtle">The application could not detect a system Blender installation. Output directories were filled in, but you still need to select the Blender executable.</p>
     <div class="dialog-actions"><button class="primary" value="ok">OK</button></div>
   </form></dialog>
+  <div id="contextMenu" class="context-menu hidden" role="menu">
+    <button type="button" data-context-action="edit">Edit task</button>
+    <button type="button" data-context-action="command">Modify command</button>
+    <button type="button" data-context-action="duplicate">Duplicate task</button>
+    <button type="button" data-context-action="open-output">Open output folder</button>
+    <span class="context-separator"></span>
+    <button type="button" class="context-danger" data-context-action="delete">Delete from queue</button>
+  </div>
   <div id="toast" role="status"></div>
-  <script src="./demo-api.js"></script>
-  <script src="./app.js"></script>
+  <script src="demo-api.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

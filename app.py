@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 import os
 import platform
 import re
@@ -31,6 +33,7 @@ server_instance: ThreadingHTTPServer | None = None
 tray_process: subprocess.Popen | None = None
 notification_threads = []
 notification_lock = threading.Lock()
+app_logger = logging.getLogger("blendercmd_gui")
 runtime = {
     "status": "Idle",
     "currentTaskId": None,
@@ -39,6 +42,12 @@ runtime = {
     "log": [],
     "cancelRequested": False,
 }
+
+
+def normalize_queue(queue):
+    renders = [dict(task) for task in queue if task.get("kind") == "render"]
+    system = next((dict(task) for task in queue if task.get("kind") == "system" and task.get("action") in ("shutdown", "suspend")), None)
+    return renders + ([system] if system else [])
 
 
 def default_data():
@@ -58,6 +67,9 @@ def default_data():
             "enabled": False,
             "server": "https://ntfy.sh",
             "topic": "",
+        },
+        "logging": {
+            "enabled": False,
         },
         "queue": [],
     }
@@ -95,7 +107,11 @@ def merge_defaults(data):
     data.setdefault("notifications", {})
     for key, value in defaults["notifications"].items():
         data["notifications"].setdefault(key, value)
+    data.setdefault("logging", {})
+    for key, value in defaults["logging"].items():
+        data["logging"].setdefault(key, value)
     data.setdefault("queue", [])
+    data["queue"] = normalize_queue(data["queue"])
     return data
 
 
@@ -110,7 +126,7 @@ def parse_yaml_scalar(value):
 
 
 def parse_yaml_config(text):
-    data = {"server": {}, "settings": {}, "notifications": {}, "queue": []}
+    data = {"server": {}, "settings": {}, "notifications": {}, "logging": {}, "queue": []}
     section = None
     queue_item = None
     for number, raw_line in enumerate(text.splitlines(), 1):
@@ -127,7 +143,7 @@ def parse_yaml_config(text):
                 data["queue"] = []
             queue_item = None
             continue
-        if section in ("server", "settings", "notifications") and raw_line.startswith("  "):
+        if section in ("server", "settings", "notifications", "logging") and raw_line.startswith("  "):
             key, value = raw_line.strip().split(":", 1)
             data[section][key.strip()] = parse_yaml_scalar(value)
         elif section == "queue":
@@ -156,13 +172,16 @@ def save_data(data):
     lines.append("notifications:")
     for key, value in data.get("notifications", {}).items():
         lines.append(f"  {key}: {yaml_scalar(value)}")
+    lines.append("logging:")
+    for key, value in data.get("logging", {}).items():
+        lines.append(f"  {key}: {yaml_scalar(value)}")
     queue = data.get("queue", [])
     if not queue:
         lines.append("queue: []")
     else:
         lines.append("queue:")
         for task in queue:
-            items = [(key, value) for key, value in task.items() if key != "state"]
+            items = [(key, value) for key, value in task.items() if key not in ("state", "missing", "stateReason", "command", "generatedCommand")]
             first_key, first_value = items[0]
             lines.append(f"  - {first_key}: {yaml_scalar(first_value)}")
             for key, value in items[1:]:
@@ -179,6 +198,31 @@ def append_log(message):
     with state_lock:
         runtime["log"].append(clean)
         runtime["log"] = runtime["log"][-400:]
+    if app_logger.handlers:
+        app_logger.info(clean)
+
+
+def configure_logging(config):
+    app_logger.handlers.clear()
+    app_logger.setLevel(logging.INFO)
+    app_logger.propagate = False
+    if not config.get("logging", {}).get("enabled"):
+        return
+    log_dir = APP_DIR / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(log_dir / "blendercmd-gui.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(threadName)s] %(message)s"))
+    app_logger.addHandler(handler)
+
+    def unhandled_exception(exc_type, exc_value, exc_traceback):
+        app_logger.critical("Unhandled application exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+    def unhandled_thread_exception(args):
+        app_logger.critical("Unhandled thread exception", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+    sys.excepthook = unhandled_exception
+    threading.excepthook = unhandled_thread_exception
+    app_logger.info("Application logging enabled on %s %s", SYSTEM, platform.release())
 
 
 def send_render_notification(task, config):
@@ -426,6 +470,16 @@ def run_system_action(action):
 
 
 def task_output_prefix(task, settings):
+    override = str(task.get("commandOverride", "")).strip()
+    if override:
+        try:
+            args = split_command(override)
+            if "-o" in args and args.index("-o") + 1 < len(args):
+                return Path(args[args.index("-o") + 1])
+            if "--render-output" in args and args.index("--render-output") + 1 < len(args):
+                return Path(args[args.index("--render-output") + 1])
+        except ValueError:
+            pass
     output_root = settings["imageOutputPath"] if task["type"] == "image" else settings["animationOutputPath"]
     if task["type"] == "animation":
         subdirectory = Path(task["fileName"]).stem or "animation"
@@ -443,7 +497,49 @@ def task_format(task):
     return task.get("outputFormat") or ("PNG" if task.get("type") == "image" else "PNG_SEQUENCE")
 
 
+def split_command(command):
+    parts = shlex.split(str(command), posix=not IS_WINDOWS)
+    if IS_WINDOWS:
+        parts = [part[1:-1] if len(part) >= 2 and part[0] == part[-1] and part[0] in "\"'" else part for part in parts]
+    return parts
+
+
+def format_command(args):
+    return subprocess.list2cmdline(args) if IS_WINDOWS else shlex.join(args)
+
+
+def task_source_path(task, settings=None):
+    override = str(task.get("commandOverride", "")).strip()
+    if override:
+        try:
+            args = split_command(override)
+            if "-b" in args and args.index("-b") + 1 < len(args):
+                return args[args.index("-b") + 1]
+            if "--background" in args and args.index("--background") + 1 < len(args):
+                return args[args.index("--background") + 1]
+            blend = next((part for part in args[1:] if part.lower().endswith(".blend")), None)
+            if blend:
+                return blend
+        except ValueError:
+            pass
+    return str(task.get("filePath", ""))
+
+
 def task_command(task, settings):
+    override = str(task.get("commandOverride", "")).strip()
+    if override:
+        args = split_command(override)
+        if task.get("_applyFrameRange"):
+            for short, long_name, value in (
+                ("-s", "--frame-start", task["frameStart"]),
+                ("-e", "--frame-end", task["frameEnd"]),
+            ):
+                option = short if short in args else long_name if long_name in args else None
+                if option and args.index(option) + 1 < len(args):
+                    args[args.index(option) + 1] = str(value)
+                else:
+                    args.extend([short, str(value)])
+        return args
     output = str(task_output_prefix(task, settings))
     output_format = task_format(task)
     blender_format = {"EXR": "OPEN_EXR", "PNG_SEQUENCE": "PNG", "MP4": "FFMPEG", "WEBM": "FFMPEG"}.get(output_format, output_format)
@@ -523,8 +619,137 @@ def animation_preflight(data):
 def missing_render_tasks(data):
     return [
         task for task in data["queue"]
-        if task.get("kind") == "render" and not Path(str(task.get("filePath", ""))).is_file()
+        if task.get("kind") == "render" and not Path(task_source_path(task, data.get("settings"))).is_file()
     ]
+
+
+def executable_available(value):
+    value = str(value or "").strip()
+    return bool(value and (Path(value).is_file() or shutil.which(value)))
+
+
+def writable_directory(path):
+    candidate = Path(str(path or "")).expanduser()
+    while not candidate.exists() and candidate != candidate.parent:
+        candidate = candidate.parent
+    return candidate.is_dir() and os.access(candidate, os.W_OK)
+
+
+def queue_preflight(data):
+    errors = []
+    warnings = []
+    settings = data["settings"]
+    renders = [task for task in data["queue"] if task.get("kind") == "render"]
+    if not renders:
+        errors.append("The queue does not contain a render task.")
+    checked_outputs = set()
+    for task in renders:
+        name = str(task.get("fileName") or "Unnamed task")
+        try:
+            command = task_command(task, settings)
+        except ValueError as error:
+            errors.append(f"{name}: invalid command syntax ({error}).")
+            continue
+        if not command:
+            errors.append(f"{name}: the Blender command is empty.")
+            continue
+        if not executable_available(command[0]):
+            errors.append(f"{name}: Blender executable was not found: {command[0]}")
+        source = task_source_path(task, settings)
+        if not source or not Path(source).is_file():
+            errors.append(f"{name}: source file is missing: {source or '<empty>'}")
+        try:
+            start = int(task.get("frameStart"))
+            end = int(task.get("frameEnd", start))
+            if end < start:
+                errors.append(f"{name}: end frame is lower than start frame.")
+        except (TypeError, ValueError):
+            errors.append(f"{name}: frame range is invalid.")
+        if not str(task.get("outputName", "")).strip():
+            errors.append(f"{name}: output name is empty.")
+        configured_root = settings.get("imageOutputPath" if task.get("type") == "image" else "animationOutputPath", "")
+        has_override_output = any(option in command for option in ("-o", "--render-output"))
+        if not configured_root and not has_override_output:
+            errors.append(f"{name}: output directory is not configured.")
+        else:
+            output_directory = str(task_output_prefix(task, settings).parent)
+        if (configured_root or has_override_output) and output_directory not in checked_outputs:
+            checked_outputs.add(output_directory)
+            if not writable_directory(output_directory):
+                errors.append(f"Output directory is not writable: {output_directory}")
+            else:
+                try:
+                    disk_path = Path(output_directory)
+                    while not disk_path.exists() and disk_path != disk_path.parent:
+                        disk_path = disk_path.parent
+                    free = shutil.disk_usage(disk_path).free
+                    if free < 1024 * 1024 * 1024:
+                        warnings.append(f"Less than 1 GB is available for output: {output_directory}")
+                except OSError:
+                    warnings.append(f"Available disk space could not be checked: {output_directory}")
+    return {"errors": errors, "warnings": warnings, "animations": animation_preflight(data)}
+
+
+def open_output_folder(task, settings):
+    folder = task_output_prefix(task, settings).parent
+    folder.mkdir(parents=True, exist_ok=True)
+    if IS_WINDOWS:
+        script = r'''
+param([string]$target)
+$target = $env:BLENDERCMD_GUI_OUTPUT_FOLDER
+$shell = New-Object -ComObject Shell.Application
+$shell.Open($target)
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class WindowFocus {
+    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr processId);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint source, uint target, bool attach);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+}
+"@
+for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    Start-Sleep -Milliseconds 100
+    $window = $shell.Windows() | Where-Object {
+        try { $_.Document.Folder.Self.Path -eq $target } catch { $false }
+    } | Select-Object -First 1
+    if ($window) {
+        $handle = [IntPtr]$window.HWND
+        $foreground = [WindowFocus]::GetForegroundWindow()
+        $foregroundThread = [WindowFocus]::GetWindowThreadProcessId($foreground, [IntPtr]::Zero)
+        $targetThread = [WindowFocus]::GetWindowThreadProcessId($handle, [IntPtr]::Zero)
+        [WindowFocus]::AttachThreadInput($foregroundThread, $targetThread, $true) | Out-Null
+        [WindowFocus]::ShowWindowAsync($handle, 9) | Out-Null
+        [WindowFocus]::BringWindowToTop($handle) | Out-Null
+        [WindowFocus]::SetWindowPos($handle, [IntPtr](-1), 0, 0, 0, 0, 0x0003) | Out-Null
+        [WindowFocus]::SetWindowPos($handle, [IntPtr](-2), 0, 0, 0, 0, 0x0003) | Out-Null
+        # A short Alt key pulse grants this user-initiated process permission to
+        # cross Windows' foreground-lock boundary without leaving a key pressed.
+        [WindowFocus]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+        [WindowFocus]::SetForegroundWindow($handle) | Out-Null
+        [WindowFocus]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+        [WindowFocus]::AttachThreadInput($foregroundThread, $targetThread, $false) | Out-Null
+        break
+    }
+}
+'''
+        focus_environment = os.environ.copy()
+        focus_environment["BLENDERCMD_GUI_OUTPUT_FOLDER"] = str(folder.resolve())
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
+            creationflags=NO_WINDOW,
+            env=focus_environment,
+        )
+    elif SYSTEM == "Darwin":
+        subprocess.Popen(["open", str(folder)])
+    else:
+        subprocess.Popen(["xdg-open", str(folder)])
+    return str(folder)
 
 
 def queue_with_states(data):
@@ -536,15 +761,26 @@ def queue_with_states(data):
             task["state"] = None
             task["missing"] = False
         else:
-            task["missing"] = not Path(str(task.get("filePath", ""))).is_file()
+            task["missing"] = not Path(task_source_path(task, data.get("settings"))).is_file()
             if task["missing"]:
                 task["state"] = "File missing"
+                task["stateReason"] = "Source .blend file does not exist."
             elif task.get("id") == current_id:
                 task["state"] = "Rendering"
+            elif task.get("lastState") in ("Failed", "Cancelled"):
+                task["state"] = task["lastState"]
+                task["stateReason"] = str(task.get("lastError", ""))
             elif rendered_output_exists(task, data["settings"]):
                 task["state"] = "Finished"
             else:
                 task["state"] = "Waiting"
+            try:
+                task["command"] = format_command(task_command(task, data["settings"]))
+            except ValueError:
+                task["command"] = str(task.get("commandOverride", ""))
+            generated = dict(task)
+            generated.pop("commandOverride", None)
+            task["generatedCommand"] = format_command(task_command(generated, data["settings"]))
         result.append(task)
     return result
 
@@ -610,6 +846,19 @@ def update_progress(line, task, started, completed_frames):
     return completed_frames
 
 
+def set_task_result(data, task_id, state=None, reason=""):
+    for task in data["queue"]:
+        if task.get("id") == task_id and task.get("kind") == "render":
+            if state:
+                task["lastState"] = state
+                task["lastError"] = reason
+            else:
+                task.pop("lastState", None)
+                task.pop("lastError", None)
+            save_data(data)
+            return
+
+
 def execute_queue(existing_policy="overwrite"):
     global active_process
     with state_lock:
@@ -617,6 +866,11 @@ def execute_queue(existing_policy="overwrite"):
             return
         runtime.update(status="Active", currentTaskId=None, progress=0, eta=None, log=[], cancelRequested=False)
     data = load_data()
+    for queued_task in data["queue"]:
+        if queued_task.get("kind") == "render":
+            queued_task.pop("lastState", None)
+            queued_task.pop("lastError", None)
+    save_data(data)
     queue = list(data["queue"])
     settings = data["settings"]
     result_status = "Finished"
@@ -645,8 +899,12 @@ def execute_queue(existing_policy="overwrite"):
                     append_log(f"Skipping {task['fileName']}: all frames already exist.")
                     with state_lock:
                         runtime["progress"] = 100
+                    set_task_result(data, task["id"], "Finished")
                     continue
-                render_tasks = [{**task, "frameStart": start, "frameEnd": end} for start, end in contiguous_ranges(missing)]
+                render_tasks = [
+                    {**task, "frameStart": start, "frameEnd": end, "_applyFrameRange": True}
+                    for start, end in contiguous_ranges(missing)
+                ]
                 total = int(task["frameEnd"]) - int(task["frameStart"]) + 1
                 with state_lock:
                     runtime["progress"] = round(len(existing) / total * 100)
@@ -672,8 +930,16 @@ def execute_queue(existing_policy="overwrite"):
                 with process_lock:
                     active_process = None
                 if code != 0:
-                    append_log(f"Blender finished with exit code {code}. Queue stopped.")
-                    result_status = "Failed"
+                    with state_lock:
+                        cancelled = runtime["cancelRequested"]
+                    if cancelled:
+                        reason = "Cancelled by user."
+                        result_status = "Cancelled"
+                    else:
+                        reason = f"Blender exited with code {code}."
+                        result_status = "Failed"
+                    append_log(f"{reason} Queue stopped.")
+                    set_task_result(data, task["id"], result_status, reason)
                     task_failed = True
                     break
             if task_failed:
@@ -681,11 +947,15 @@ def execute_queue(existing_policy="overwrite"):
             with state_lock:
                 runtime["progress"] = 100
                 runtime["eta"] = 0
+            set_task_result(data, task["id"], "Finished")
             schedule_render_notification(task, data)
         append_log(f"Queue finished: {result_status}.")
     except Exception as error:
         append_log(f"Error: {error}")
         result_status = "Failed"
+        current_id = public_state().get("currentTaskId")
+        if current_id:
+            set_task_result(data, current_id, "Failed", str(error))
     finally:
         with state_lock:
             runtime.update(status=result_status, currentTaskId=None, eta=None)
@@ -751,25 +1021,43 @@ class Handler(BaseHTTPRequestHandler):
             save_data(data)
             return self.json_response({"ok": True})
         if path == "/api/queue":
+            if public_state()["status"] == "Active":
+                return self.json_response({"error": "The queue cannot be changed while rendering."}, 409)
             data = load_data()
             queue = self.read_json().get("queue", [])
-            data["queue"] = [{key: value for key, value in task.items() if key not in ("state", "missing")} for task in queue]
+            system_tasks = [task for task in queue if task.get("kind") == "system"]
+            if len(system_tasks) > 1:
+                return self.json_response({"error": "Only one shutdown or suspend task can be added."}, 400)
+            clean = [
+                {key: value for key, value in task.items() if key not in ("state", "missing", "stateReason", "command", "generatedCommand")}
+                for task in queue
+            ]
+            data["queue"] = normalize_queue(clean)
             save_data(data)
-            return self.json_response({"ok": True})
+            return self.json_response({"ok": True, "queue": queue_with_states(data)})
         if path == "/api/run":
             if public_state()["status"] == "Active":
                 return self.json_response({"error": "Queue is already active."}, 409)
-            missing = missing_render_tasks(load_data())
-            if missing:
-                names = ", ".join(str(task.get("fileName") or task.get("filePath") or "Unknown file") for task in missing)
-                return self.json_response({"error": f"Cannot start render. Missing Blender file(s): {names}"}, 409)
+            check = queue_preflight(load_data())
+            if check["errors"]:
+                return self.json_response({"error": "Preflight failed.", "preflight": check}, 409)
             policy = self.read_json().get("existingFrames", "overwrite")
             if policy not in ("skip", "overwrite"):
                 return self.json_response({"error": "Invalid existing frame policy."}, 400)
             threading.Thread(target=execute_queue, args=(policy,), daemon=True).start()
             return self.json_response({"ok": True})
         if path == "/api/preflight":
-            return self.json_response({"animations": animation_preflight(load_data())})
+            return self.json_response(queue_preflight(load_data()))
+        if path == "/api/open-output":
+            data = load_data()
+            task_id = self.read_json().get("id")
+            task = next((item for item in data["queue"] if item.get("id") == task_id and item.get("kind") == "render"), None)
+            if not task:
+                return self.json_response({"error": "Render task not found."}, 404)
+            try:
+                return self.json_response({"ok": True, "path": open_output_folder(task, data["settings"])})
+            except Exception as error:
+                return self.json_response({"error": f"Could not open output folder: {error}"}, 500)
         if path == "/api/cancel":
             stop_active_render()
             return self.json_response({"ok": True})
@@ -786,6 +1074,11 @@ class AppServer(ThreadingHTTPServer):
     allow_reuse_address = False
     allow_reuse_port = False
 
+    def handle_error(self, request, client_address):
+        if app_logger.handlers:
+            app_logger.exception("Unhandled HTTP error from %s", client_address)
+        super().handle_error(request, client_address)
+
 
 def show_startup_error(message):
     if IS_WINDOWS:
@@ -801,6 +1094,7 @@ def show_startup_error(message):
 def main():
     global server_instance, tray_process
     config = load_data()
+    configure_logging(config)
     host = str(config["server"].get("host", "localhost")).strip() or "localhost"
     try:
         port = int(config["server"].get("port", 5050))
