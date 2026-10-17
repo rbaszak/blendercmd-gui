@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-17
+
 ### Added
 
 - Multi-row queue selection and keyboard shortcuts.
@@ -18,9 +20,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- The Windows launcher now discovers the installed Python interpreter instead of relying on `C:\Windows\pyw.exe`.
 - Shutdown and suspend actions are mutually exclusive, unique, and always kept at the end of the queue.
 - Output folders opened from the Windows context menu are brought to the foreground.
 - The queue is constrained to the available viewport height and scrolls internally with a sticky header.
+- Successful preflight checks now start rendering immediately without an extra confirmation dialog.
+- Render success now requires the expected output to be created or updated, even when Blender exits with code 0.
+- Enabled logging adds a current-log download section to Settings.
+- ntfy.sh notifications can now be enabled and configured directly from Settings.
+- Add/Edit Task includes optional per-task resolution percentage and sample overrides.
+- Active render status displays any per-task resolution and sample overrides beside the filename.
+- Progress now advances from sample-only Blender output when tile counters are unavailable.
+- Still-image tasks default to an output name without a frame-number suffix; animation names retain `_####`.
+- The currently rendering queue row is highlighted and automatically scrolled into view.
+- Add New Task supports selecting multiple `.blend` files and configuring them sequentially.
+- Queue selection and context menus are locked while rendering, leaving only the active-task highlight visible.
+- Shutdown and suspend are live switch controls, hidden from queue rows, that can be changed or removed while renders are running.
+- Render result updates no longer restore a shutdown or suspend action disabled during an active render.
 
 ## [0.1.0] - 2026-08-23
 
@@ -55,4 +71,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Linux and macOS terminal launchers.
 - Interactive GitHub Pages demo.
 
+[Unreleased]: https://github.com/rbaszak/blendercmd-gui/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rbaszak/blendercmd-gui/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rbaszak/blendercmd-gui/releases/tag/v0.1.0

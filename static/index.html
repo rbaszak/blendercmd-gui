@@ -25,7 +25,7 @@
     <section id="renderPage" class="page active">
       <div class="hero-row"><div><p class="eyebrow">RENDER WORKSPACE</p><h1>Queue</h1><p class="subtle">Prepare and run Blender jobs in sequence.</p></div><button id="runBtn" class="primary">▶ Run render</button><button id="cancelBtn" class="danger hidden">■ Cancel</button></div>
       <div class="progress-card hidden" id="progressCard"><div><strong id="currentTask">Starting…</strong><span id="progressText">0%</span></div><div class="track"><div id="progressBar"></div></div><small id="etaText">Estimating remaining time…</small></div>
-      <div class="toolbar"><button id="addBtn" class="primary secondary">＋ Add new task</button><button id="shutdownBtn">＋ Shutdown task</button><button id="suspendBtn">＋ Suspend task</button><span id="selectionCount" class="selection-count">0 selected</span><button id="upBtn" disabled>↑</button><button id="downBtn" disabled>↓</button><button id="clearBtn" disabled>Clear queue</button></div>
+      <div class="toolbar"><button id="addBtn" class="primary secondary">＋ Add new task</button><div class="power-switches"><label><span>Shutdown</span><button id="shutdownBtn" class="switch-control" type="button" role="switch" aria-checked="false"><span></span></button></label><label><span>Suspend</span><button id="suspendBtn" class="switch-control" type="button" role="switch" aria-checked="false"><span></span></button></label></div><span id="selectionCount" class="selection-count">0 selected</span><button id="upBtn" disabled>↑</button><button id="downBtn" disabled>↓</button><button id="clearBtn" disabled>Clear queue</button></div>
       <div class="table-wrap"><table><thead><tr><th>#</th><th>File name</th><th>Type</th><th>Frames</th><th>Output</th><th>State</th></tr></thead><tbody id="queueBody"></tbody></table><div id="emptyState" class="empty"><div>◇</div><h2>Your queue is empty</h2><p>Add a Blender file to prepare the first render.</p><button id="emptyAddBtn" class="primary secondary">＋ Add new task</button></div></div>
       <details id="consoleDetails" class="console"><summary>Console output</summary><pre id="consoleLog">No render output yet.</pre></details>
     </section>
@@ -40,6 +40,19 @@
         <label>Animation custom arguments <small>Optional Blender arguments inserted before <code>-s ... -e ... -a</code>.</small><input id="animationCustomArguments" placeholder="Optional"></label>
         <div class="form-actions"><span id="saveNotice"></span><button class="primary" type="submit">Save settings</button></div>
       </form>
+      <form id="notificationsForm" class="settings-card">
+        <p class="eyebrow">NTFY.SH</p><h2>Notifications</h2>
+        <p class="subtle">Send a notification after every successfully completed render.</p>
+        <label class="toggle-row"><input id="notificationsEnabled" type="checkbox"><span><strong>Enable notifications</strong><small>Uses your ntfy.sh server and topic.</small></span></label>
+        <label>Server URL <small>For example: <code>https://ntfy.sh</code> or your self-hosted server.</small><input id="notificationsServer" type="url" placeholder="https://ntfy.sh"></label>
+        <label>Topic <small>The topic that receives completed-render notifications.</small><input id="notificationsTopic" placeholder="blender"></label>
+        <div class="form-actions"><span id="notificationsSaveNotice"></span><button class="primary" type="submit">Save notification settings</button></div>
+      </form>
+      <section id="loggingCard" class="settings-card hidden">
+        <p class="eyebrow">DIAGNOSTICS</p><h2>Logging</h2>
+        <p class="subtle">Download the latest application log, including Blender console output and unexpected errors.</p>
+        <div class="logging-actions"><span id="logDownloadNotice"></span><button id="downloadLogBtn" type="button">↓ Download log</button></div>
+      </section>
     </section>
   </main>
 
@@ -48,6 +61,10 @@
     <div class="grid-2"><label>Render type<select id="taskType"><option value="image">Image</option><option value="animation">Animation</option></select></label><label>Output format<select id="outputFormat"><option value="JPEG">JPEG</option><option value="PNG" selected>PNG</option><option value="EXR">EXR</option></select></label></div>
     <div class="grid-2"><label>Start frame<input id="frameStart" type="number" value="0" required></label><label id="endFrameLabel" class="hidden">End frame<input id="frameEnd" type="number" value="250" required></label></div>
     <label>Output file name<input id="outputName" required><small>Use # characters as frame-number placeholders.</small></label>
+    <details id="taskAdvanced" class="advanced-options"><summary>Advanced</summary><div class="grid-2">
+      <label>Resolution percentage<input id="resolutionPercentage" type="number" min="1" max="100" placeholder="Use .blend default"><small>Overrides the percentage from Output Properties.</small></label>
+      <label>Samples<input id="samples" type="number" min="1" max="1000000" placeholder="Use .blend default"><small>Overrides render samples for Cycles or Eevee.</small></label>
+    </div></details>
     <div class="dialog-actions"><button type="button" id="cancelDialog">Cancel</button><button class="primary" id="taskSubmitBtn" type="submit">Add to queue</button></div>
   </form></dialog>
   <dialog id="commandDialog"><form id="commandForm"><div class="dialog-head"><div><p class="eyebrow">ADVANCED</p><h2>Modify command</h2></div><button type="button" class="icon-btn" data-close-dialog="commandDialog">×</button></div>

@@ -7,11 +7,12 @@ const demoState = {
     animationCustomArguments: "--threads 8 --cycles-device CUDA"
   },
   notifications: { enabled: true, server: "https://ntfy.example.com", topic: "blender" },
+  logging: { enabled: true },
+  powerAction: "shutdown",
   queue: [
-    { id: "demo-1", kind: "render", filePath: "D:\\Projects\\ProductHero.blend", fileName: "ProductHero.blend", type: "image", outputFormat: "PNG", frameStart: 0, frameEnd: 0, outputName: "ProductHero_####", state: "Finished", command: '"C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b "D:\\Projects\\ProductHero.blend" -o "D:\\Renders\\Images\\ProductHero_####" -F PNG -f 0' },
+    { id: "demo-1", kind: "render", filePath: "D:\\Projects\\ProductHero.blend", fileName: "ProductHero.blend", type: "image", outputFormat: "PNG", frameStart: 0, frameEnd: 0, outputName: "ProductHero", state: "Finished", command: '"C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b "D:\\Projects\\ProductHero.blend" -o "D:\\Renders\\Images\\ProductHero" -F PNG -f 0' },
     { id: "demo-2", kind: "render", filePath: "D:\\Projects\\CameraMove.blend", fileName: "CameraMove.blend", type: "animation", outputFormat: "PNG_SEQUENCE", frameStart: 1, frameEnd: 120, outputName: "CameraMove_####", state: "Waiting", command: '"C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b "D:\\Projects\\CameraMove.blend" -o "D:\\Renders\\Animations\\CameraMove\\CameraMove_####" -F PNG -s 1 -e 120 -a' },
-    { id: "demo-3", kind: "render", filePath: "D:\\Projects\\Turntable.blend", fileName: "Turntable.blend", type: "animation", outputFormat: "MP4", frameStart: 1, frameEnd: 180, outputName: "Turntable", state: "Waiting", command: '"C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b "D:\\Projects\\Turntable.blend" -o "D:\\Renders\\Animations\\Turntable\\Turntable" -s 1 -e 180 -a' },
-    { id: "demo-4", kind: "system", action: "shutdown", state: null }
+    { id: "demo-3", kind: "render", filePath: "D:\\Projects\\Turntable.blend", fileName: "Turntable.blend", type: "animation", outputFormat: "MP4", frameStart: 1, frameEnd: 180, outputName: "Turntable", state: "Waiting", command: '"C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b "D:\\Projects\\Turntable.blend" -o "D:\\Renders\\Animations\\Turntable\\Turntable" -s 1 -e 180 -a' }
   ],
   runtime: { status: "Idle", currentTaskId: null, progress: 0, eta: null, log: [] }
 };
@@ -48,7 +49,9 @@ window.fetch = async function demoFetch(resource, options = {}) {
   const url = String(resource);
   const method = (options.method || "GET").toUpperCase();
   if (url.endsWith("/api/data")) return demoJson(demoState);
+  if (url.endsWith("/api/log/download")) return Promise.resolve(new Response("Demo BlenderCMD Render GUI log.\nQueue completed successfully.\n", { status: 200, headers: { "Content-Type": "text/plain", "Content-Disposition": "attachment; filename=blendercmd-gui.log" } }));
   if (url.endsWith("/api/system-defaults")) return demoJson({ blenderFound: true, settings: { blenderPath: "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe", imageOutputPath: "D:\\BlenderCMD Render GUI\\output", animationOutputPath: "D:\\BlenderCMD Render GUI\\animations-output" } });
+  if (url.includes("/api/dialog/files")) return demoJson({ paths: ["D:\\Projects\\NewScene.blend", "D:\\Projects\\Studio.blend"] });
   if (url.includes("/api/dialog/file")) return demoJson({ path: "D:\\Projects\\NewScene.blend" });
   if (url.includes("/api/dialog/folder")) return demoJson({ path: "D:\\Renders\\Demo" });
   if (url.includes("/api/dialog/exe")) return demoJson({ path: "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" });
@@ -64,6 +67,15 @@ window.fetch = async function demoFetch(resource, options = {}) {
   if (url.endsWith("/api/settings") && method === "POST") {
     demoState.settings = JSON.parse(options.body || "{}");
     return demoJson({ ok: true });
+  }
+  if (url.endsWith("/api/notifications") && method === "POST") {
+    demoState.notifications = JSON.parse(options.body || "{}");
+    return demoJson({ ok: true, notifications: demoState.notifications });
+  }
+  if (url.endsWith("/api/power-action") && method === "POST") {
+    const action = JSON.parse(options.body || "{}").action;
+    demoState.powerAction = action;
+    return demoJson({ ok: true, queue: demoState.queue, powerAction: action });
   }
   if (url.endsWith("/api/run") && method === "POST") {
     startDemoRender();

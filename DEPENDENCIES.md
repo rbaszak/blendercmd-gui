@@ -2,6 +2,16 @@
 
 Blender Render Queue uses only the Python standard library. There are no Python packages to download from PyPI, so `requirements.txt` is intentionally empty.
 
+## Windows
+
+Python 3.9 or newer is required to run the application. Install it from [python.org](https://www.python.org/downloads/windows/) and enable **Add python.exe to PATH** in the installer. The Windows launcher displays a clear error if it cannot find a compatible Python installation.
+
+Verify the installation in PowerShell:
+
+```powershell
+python --version
+```
+
 ## Linux
 
 The application needs Python 3, Tkinter for native file dialogs, and curl for ntfy.sh notifications.

@@ -27,6 +27,7 @@ IS_WINDOWS = SYSTEM == "Windows"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 state_lock = threading.Lock()
+config_lock = threading.RLock()
 process_lock = threading.Lock()
 active_process: subprocess.Popen | None = None
 server_instance: ThreadingHTTPServer | None = None
@@ -48,6 +49,14 @@ def normalize_queue(queue):
     renders = [dict(task) for task in queue if task.get("kind") == "render"]
     system = next((dict(task) for task in queue if task.get("kind") == "system" and task.get("action") in ("shutdown", "suspend")), None)
     return renders + ([system] if system else [])
+
+
+def set_power_action(data, action):
+    renders = [dict(task) for task in data.get("queue", []) if task.get("kind") == "render"]
+    if action in ("shutdown", "suspend"):
+        renders.append({"id": f"system-{action}", "kind": "system", "action": action})
+    data["queue"] = renders
+    return data
 
 
 def default_data():
@@ -225,6 +234,21 @@ def configure_logging(config):
     app_logger.info("Application logging enabled on %s %s", SYSTEM, platform.release())
 
 
+def normalize_notifications(value):
+    notifications = {
+        "enabled": value.get("enabled") is True,
+        "server": str(value.get("server", "")).strip().rstrip("/"),
+        "topic": str(value.get("topic", "")).strip(),
+    }
+    if notifications["enabled"]:
+        parsed = urlparse(notifications["server"])
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("Enter a valid ntfy.sh server URL starting with http:// or https://.")
+        if not notifications["topic"]:
+            raise ValueError("Enter an ntfy.sh topic before enabling notifications.")
+    return notifications
+
+
 def send_render_notification(task, config):
     notifications = config.get("notifications", {})
     if not notifications.get("enabled"):
@@ -377,6 +401,15 @@ def choose_path(kind):
             script = 'POSIX path of (choose folder with prompt "Select output directory")'
         elif kind == "exe":
             script = 'POSIX path of (choose file with prompt "Select Blender" of type {"com.apple.application-bundle"})'
+        elif kind == "files":
+            script = '''
+set selectedFiles to choose file with prompt "Select Blender projects" with multiple selections allowed
+set output to ""
+repeat with selectedFile in selectedFiles
+    set output to output & POSIX path of selectedFile & linefeed
+end repeat
+return output
+'''
         else:
             script = 'POSIX path of (choose file with prompt "Select a Blender project")'
         result = subprocess.run(
@@ -391,6 +424,8 @@ def choose_path(kind):
             if "-128" in error or "canceled" in error.lower() or "cancelled" in error.lower():
                 return ""
             raise RuntimeError(error or "macOS file picker could not be opened.")
+        if kind == "files":
+            return [line.strip() for line in result.stdout.splitlines() if line.strip()]
         selected = Path(result.stdout.strip().rstrip("/"))
         if kind == "exe" and selected.suffix.lower() == ".app":
             blender = selected / "Contents" / "MacOS" / "Blender"
@@ -408,12 +443,14 @@ def choose_path(kind):
         try:
             if kind == "folder":
                 return filedialog.askdirectory(parent=root) or ""
-            filetypes = [("Blender files", "*.blend")] if kind == "file" else [("All files", "*")]
+            filetypes = [("Blender files", "*.blend")] if kind in ("file", "files") else [("All files", "*")]
+            if kind == "files":
+                return list(filedialog.askopenfilenames(parent=root, filetypes=filetypes) or [])
             return filedialog.askopenfilename(parent=root, filetypes=filetypes) or ""
         finally:
             root.destroy()
-    if kind in ("file", "exe"):
-        filter_text = "Blender files (*.blend)|*.blend" if kind == "file" else "Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe"
+    if kind in ("file", "files", "exe"):
+        filter_text = "Blender files (*.blend)|*.blend" if kind in ("file", "files") else "Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe"
         dialog = """
 Add-Type -AssemblyName System.Windows.Forms
 $owner = New-Object System.Windows.Forms.Form
@@ -425,10 +462,10 @@ $owner.Opacity = 0
 $owner.Show()
 $d = New-Object System.Windows.Forms.OpenFileDialog
 $d.Filter = '__FILTER__'
-$d.Multiselect = $false
-if ($d.ShowDialog($owner) -eq 'OK') { [Console]::OutputEncoding=[Text.Encoding]::UTF8; Write-Output $d.FileName }
+$d.Multiselect = __MULTIPLE__
+if ($d.ShowDialog($owner) -eq 'OK') { [Console]::OutputEncoding=[Text.Encoding]::UTF8; $d.FileNames | ForEach-Object { Write-Output $_ } }
 $owner.Close()
-""".replace("__FILTER__", filter_text)
+""".replace("__FILTER__", filter_text).replace("__MULTIPLE__", "$true" if kind == "files" else "$false")
     else:
         dialog = """
 Add-Type -AssemblyName System.Windows.Forms
@@ -453,6 +490,8 @@ $owner.Close()
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "Windows dialog could not be opened.")
+    if kind == "files":
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
     return result.stdout.strip()
 
 
@@ -547,6 +586,19 @@ def task_command(task, settings):
     custom = settings.get("imageCustomArguments" if task["type"] == "image" else "animationCustomArguments", "").strip()
     if custom:
         args += [part[1:-1] if len(part) >= 2 and part[0] == part[-1] and part[0] in "\"'" else part for part in shlex.split(custom, posix=False)]
+    advanced_expression = []
+    resolution_percentage = task.get("resolutionPercentage")
+    samples = task.get("samples")
+    if resolution_percentage not in (None, ""):
+        advanced_expression.append(f"s.render.resolution_percentage={int(resolution_percentage)}")
+    if samples not in (None, ""):
+        sample_count = int(samples)
+        advanced_expression.extend([
+            f"setattr(s.cycles,'samples',{sample_count}) if hasattr(s,'cycles') else None",
+            f"setattr(s.eevee,'taa_render_samples',{sample_count}) if hasattr(s,'eevee') and hasattr(s.eevee,'taa_render_samples') else None",
+        ])
+    if advanced_expression:
+        args += ["--python-expr", "import bpy;s=bpy.context.scene;" + ";".join(advanced_expression)]
     if output_format in ("MP4", "WEBM"):
         container, codec = ("MPEG4", "H264") if output_format == "MP4" else ("WEBM", "WEBM")
         expression = f"import bpy; f=bpy.context.scene.render.ffmpeg; f.format='{container}'; f.codec='{codec}'; f.constant_rate_factor='MEDIUM'"
@@ -571,14 +623,79 @@ def output_file_for_frame(task, settings, frame):
     return output_path
 
 
+def temporary_still_output(task, settings):
+    if task.get("type") != "image" or "#" in str(task.get("outputName", "")) or task.get("commandOverride"):
+        return None
+    generated_task = {**task, "outputName": str(task["outputName"]) + "####"}
+    return output_file_for_frame(generated_task, settings, int(task["frameStart"]))
+
+
+def finalize_still_output(task, settings, temporary_before):
+    temporary = temporary_still_output(task, settings)
+    if temporary is None:
+        return
+    temporary_after = output_signature(temporary)
+    if temporary_after is None or temporary_after == temporary_before:
+        return
+    final_output = output_file_for_frame(task, settings, int(task["frameStart"]))
+    final_output.parent.mkdir(parents=True, exist_ok=True)
+    temporary.replace(final_output)
+
+
+def expected_output_files(task, settings):
+    if task_format(task) in ("MP4", "WEBM"):
+        output = task_output_prefix(task, settings)
+        extension = ".mp4" if task_format(task) == "MP4" else ".webm"
+        if output.suffix.lower() != extension:
+            output = output.with_name(output.name + extension)
+        return [output]
+    start = int(task["frameStart"])
+    end = start if task["type"] == "image" else int(task["frameEnd"])
+    return [output_file_for_frame(task, settings, frame) for frame in range(start, end + 1)]
+
+
+def output_signature(path):
+    try:
+        stat = path.stat()
+        return stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
+    except OSError:
+        return None
+
+
+def snapshot_outputs(task, settings):
+    return {path: output_signature(path) for path in expected_output_files(task, settings)}
+
+
+def output_validation_error(task, settings, before):
+    missing = []
+    unchanged = []
+    for path in expected_output_files(task, settings):
+        after = output_signature(path)
+        if after is None:
+            missing.append(path)
+        elif before.get(path) == after:
+            unchanged.append(path)
+    if not missing and not unchanged:
+        return None
+    affected = missing + unchanged
+    preview = ", ".join(str(path) for path in affected[:3])
+    if len(affected) > 3:
+        preview += f", and {len(affected) - 3} more"
+    return f"Blender did not create or update the expected output: {preview}"
+
+
+def blender_render_error(line):
+    match = re.search(r"\breports\s+\|\s+ERROR\s+(.+)", line, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    match = re.match(r"\s*Error:\s*(.+)", line, re.IGNORECASE)
+    return match.group(1).strip() if match else None
+
+
 def rendered_output_exists(task, settings):
     if task.get("kind") != "render":
         return False
-    if task_format(task) in ("MP4", "WEBM"):
-        return task_output_prefix(task, settings).is_file()
-    start = int(task["frameStart"])
-    end = start if task["type"] == "image" else int(task["frameEnd"])
-    return all(output_file_for_frame(task, settings, frame).is_file() for frame in range(start, end + 1))
+    return all(path.is_file() for path in expected_output_files(task, settings))
 
 
 def existing_animation_frames(task, settings):
@@ -667,6 +784,15 @@ def queue_preflight(data):
             errors.append(f"{name}: frame range is invalid.")
         if not str(task.get("outputName", "")).strip():
             errors.append(f"{name}: output name is empty.")
+        try:
+            resolution = task.get("resolutionPercentage")
+            if resolution not in (None, "") and not 1 <= int(resolution) <= 100:
+                errors.append(f"{name}: resolution percentage must be between 1 and 100.")
+            samples = task.get("samples")
+            if samples not in (None, "") and not 1 <= int(samples) <= 1000000:
+                errors.append(f"{name}: samples must be between 1 and 1000000.")
+        except (TypeError, ValueError):
+            errors.append(f"{name}: advanced render values are invalid.")
         configured_root = settings.get("imageOutputPath" if task.get("type") == "image" else "animationOutputPath", "")
         has_override_output = any(option in command for option in ("-o", "--render-output"))
         if not configured_root and not has_override_output:
@@ -788,7 +914,7 @@ def queue_with_states(data):
 def update_progress(line, task, started, completed_frames):
     frame_match = re.search(r"Fra:\s*(\d+)", line)
     tiles_match = re.search(r"Rendered\s+(\d+)/(\d+)\s+Tiles", line, re.IGNORECASE)
-    samples_match = re.search(r"Sample\s+(\d+)/(\d+)", line, re.IGNORECASE)
+    samples_match = re.search(r"(?:Sample\s+|Rendering\s+)(\d+)\s*/\s*(\d+)(?:\s+Samples?)?", line, re.IGNORECASE)
     remaining_match = re.search(r"Remaining:\s*([\d:.]+)", line, re.IGNORECASE)
 
     remaining_seconds = None
@@ -802,19 +928,26 @@ def update_progress(line, task, started, completed_frames):
         except ValueError:
             pass
 
+    sample_fraction = None
+    if samples_match:
+        sample, total_samples = map(int, samples_match.groups())
+        if total_samples:
+            sample_fraction = min(1.0, max(0.0, sample / total_samples))
+
     tile_fraction = None
     if tiles_match:
         rendered, total_tiles = map(int, tiles_match.groups())
         if total_tiles:
-            if samples_match:
-                sample, total_samples = map(int, samples_match.groups())
-                sample_fraction = min(1.0, max(0.0, sample / total_samples)) if total_samples else 0
+            if sample_fraction is not None:
                 # Blender numbers the tile currently being sampled. Combine completed
                 # tiles with the fraction of samples from the current tile.
                 tile_fraction = (max(0, rendered - 1) + sample_fraction) / total_tiles
             else:
                 tile_fraction = rendered / total_tiles
             tile_fraction = min(1.0, max(0.0, tile_fraction))
+    elif sample_fraction is not None:
+        # Eevee and some Cycles modes report sample progress without tile counts.
+        tile_fraction = sample_fraction
 
     if task["type"] == "image":
         progress = round((tile_fraction or 0) * 100)
@@ -846,17 +979,32 @@ def update_progress(line, task, started, completed_frames):
     return completed_frames
 
 
-def set_task_result(data, task_id, state=None, reason=""):
-    for task in data["queue"]:
-        if task.get("id") == task_id and task.get("kind") == "render":
-            if state:
-                task["lastState"] = state
-                task["lastError"] = reason
-            else:
+def set_task_result(task_id, state=None, reason=""):
+    # Always update the newest configuration. A render may run for hours, so
+    # saving its original snapshot here would restore power-action changes made
+    # from the UI while it was running.
+    with config_lock:
+        latest_data = load_data()
+        for task in latest_data["queue"]:
+            if task.get("id") == task_id and task.get("kind") == "render":
+                if state:
+                    task["lastState"] = state
+                    task["lastError"] = reason
+                else:
+                    task.pop("lastState", None)
+                    task.pop("lastError", None)
+                save_data(latest_data)
+                return
+
+
+def clear_task_results():
+    with config_lock:
+        latest_data = load_data()
+        for task in latest_data["queue"]:
+            if task.get("kind") == "render":
                 task.pop("lastState", None)
                 task.pop("lastError", None)
-            save_data(data)
-            return
+        save_data(latest_data)
 
 
 def execute_queue(existing_policy="overwrite"):
@@ -865,13 +1013,9 @@ def execute_queue(existing_policy="overwrite"):
         if runtime["status"] == "Active":
             return
         runtime.update(status="Active", currentTaskId=None, progress=0, eta=None, log=[], cancelRequested=False)
+    clear_task_results()
     data = load_data()
-    for queued_task in data["queue"]:
-        if queued_task.get("kind") == "render":
-            queued_task.pop("lastState", None)
-            queued_task.pop("lastError", None)
-    save_data(data)
-    queue = list(data["queue"])
+    queue = [task for task in data["queue"] if task.get("kind") == "render"]
     settings = data["settings"]
     result_status = "Finished"
     append_log("Queue started.")
@@ -882,11 +1026,6 @@ def execute_queue(existing_policy="overwrite"):
                     result_status = "Cancelled"
                     break
                 runtime.update(currentTaskId=task["id"], progress=0, eta=None)
-            if task["kind"] == "system":
-                append_log(f"System action: {task['action']}")
-                wait_for_notifications()
-                run_system_action(task["action"])
-                continue
             task_output_prefix(task, settings).parent.mkdir(parents=True, exist_ok=True)
             append_log(f"Rendering {task['fileName']}")
             started = time.monotonic()
@@ -899,7 +1038,7 @@ def execute_queue(existing_policy="overwrite"):
                     append_log(f"Skipping {task['fileName']}: all frames already exist.")
                     with state_lock:
                         runtime["progress"] = 100
-                    set_task_result(data, task["id"], "Finished")
+                    set_task_result(task["id"], "Finished")
                     continue
                 render_tasks = [
                     {**task, "frameStart": start, "frameEnd": end, "_applyFrameRange": True}
@@ -912,6 +1051,10 @@ def execute_queue(existing_policy="overwrite"):
             task_failed = False
             for render_task in render_tasks:
                 args = task_command(render_task, settings)
+                output_before = snapshot_outputs(render_task, settings)
+                temporary_output = temporary_still_output(render_task, settings)
+                temporary_before = output_signature(temporary_output) if temporary_output else None
+                reported_render_errors = []
                 with process_lock:
                     active_process = subprocess.Popen(
                         args,
@@ -925,6 +1068,9 @@ def execute_queue(existing_policy="overwrite"):
                 assert active_process.stdout is not None
                 for line in active_process.stdout:
                     append_log(line)
+                    reported_error = blender_render_error(line)
+                    if reported_error:
+                        reported_render_errors.append(reported_error)
                     completed_frames = update_progress(line, task, started, completed_frames)
                 code = active_process.wait()
                 with process_lock:
@@ -939,7 +1085,16 @@ def execute_queue(existing_policy="overwrite"):
                         reason = f"Blender exited with code {code}."
                         result_status = "Failed"
                     append_log(f"{reason} Queue stopped.")
-                    set_task_result(data, task["id"], result_status, reason)
+                    set_task_result(task["id"], result_status, reason)
+                    task_failed = True
+                    break
+                finalize_still_output(render_task, settings, temporary_before)
+                validation_error = output_validation_error(render_task, settings, output_before)
+                if validation_error:
+                    reason = reported_render_errors[-1] if reported_render_errors else validation_error
+                    result_status = "Failed"
+                    append_log(f"{reason} Queue stopped.")
+                    set_task_result(task["id"], "Failed", reason)
                     task_failed = True
                     break
             if task_failed:
@@ -947,15 +1102,26 @@ def execute_queue(existing_policy="overwrite"):
             with state_lock:
                 runtime["progress"] = 100
                 runtime["eta"] = 0
-            set_task_result(data, task["id"], "Finished")
+            set_task_result(task["id"], "Finished")
             schedule_render_notification(task, data)
+        if result_status == "Finished":
+            with config_lock:
+                latest_data = load_data()
+                power_task = next((task for task in latest_data["queue"] if task.get("kind") == "system"), None)
+                if power_task:
+                    with state_lock:
+                        runtime.update(currentTaskId=power_task["id"], progress=100, eta=0)
+            if power_task:
+                append_log(f"System action: {power_task['action']}")
+                wait_for_notifications()
+                run_system_action(power_task["action"])
         append_log(f"Queue finished: {result_status}.")
     except Exception as error:
         append_log(f"Error: {error}")
         result_status = "Failed"
         current_id = public_state().get("currentTaskId")
         if current_id:
-            set_task_result(data, current_id, "Failed", str(error))
+            set_task_result(current_id, "Failed", str(error))
     finally:
         with state_lock:
             runtime.update(status=result_status, currentTaskId=None, eta=None)
@@ -983,13 +1149,31 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/data":
             data = load_data()
             data["runtime"] = public_state()
-            data["queue"] = queue_with_states(data)
+            data["powerAction"] = next((task.get("action") for task in data["queue"] if task.get("kind") == "system"), None)
+            data["queue"] = [task for task in queue_with_states(data) if task.get("kind") == "render"]
             return self.json_response(data)
         if path == "/api/system-defaults":
             return self.json_response(system_default_settings())
+        if path == "/api/log/download":
+            config = load_data()
+            if not config.get("logging", {}).get("enabled"):
+                return self.json_response({"error": "Logging is disabled."}, 404)
+            log_file = APP_DIR / "logs" / "blendercmd-gui.log"
+            if not log_file.is_file():
+                return self.json_response({"error": "No log file is available yet."}, 404)
+            body = log_file.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="blendercmd-gui.log"')
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path.startswith("/api/dialog/"):
             try:
-                return self.json_response({"path": choose_path(path.rsplit("/", 1)[-1])})
+                selected = choose_path(path.rsplit("/", 1)[-1])
+                return self.json_response({"paths": selected} if isinstance(selected, list) else {"path": selected})
             except Exception as error:
                 return self.json_response({"error": str(error)}, 500)
         requested = "index.html" if path == "/" else path.lstrip("/")
@@ -1020,6 +1204,27 @@ class Handler(BaseHTTPRequestHandler):
             data["settings"] = settings
             save_data(data)
             return self.json_response({"ok": True})
+        if path == "/api/notifications":
+            data = load_data()
+            try:
+                notifications = normalize_notifications(self.read_json())
+            except ValueError as error:
+                return self.json_response({"error": str(error)}, 400)
+            data["notifications"] = notifications
+            save_data(data)
+            return self.json_response({"ok": True, "notifications": notifications})
+        if path == "/api/power-action":
+            action = self.read_json().get("action")
+            if action not in (None, "shutdown", "suspend"):
+                return self.json_response({"error": "Invalid power action."}, 400)
+            with config_lock:
+                if str(public_state().get("currentTaskId", "")).startswith("system-"):
+                    return self.json_response({"error": "The system action has already started."}, 409)
+                data = load_data()
+                set_power_action(data, action)
+                save_data(data)
+            visible_queue = [task for task in queue_with_states(data) if task.get("kind") == "render"]
+            return self.json_response({"ok": True, "queue": visible_queue, "powerAction": action})
         if path == "/api/queue":
             if public_state()["status"] == "Active":
                 return self.json_response({"error": "The queue cannot be changed while rendering."}, 409)
@@ -1032,9 +1237,11 @@ class Handler(BaseHTTPRequestHandler):
                 {key: value for key, value in task.items() if key not in ("state", "missing", "stateReason", "command", "generatedCommand")}
                 for task in queue
             ]
-            data["queue"] = normalize_queue(clean)
+            current_power = next((task for task in data["queue"] if task.get("kind") == "system"), None)
+            data["queue"] = normalize_queue(clean + ([current_power] if current_power else []))
             save_data(data)
-            return self.json_response({"ok": True, "queue": queue_with_states(data)})
+            visible_queue = [task for task in queue_with_states(data) if task.get("kind") == "render"]
+            return self.json_response({"ok": True, "queue": visible_queue})
         if path == "/api/run":
             if public_state()["status"] == "Active":
                 return self.json_response({"error": "Queue is already active."}, 409)
